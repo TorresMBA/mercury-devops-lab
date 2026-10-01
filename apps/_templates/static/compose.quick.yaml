@@ -1,0 +1,20 @@
+# Modo rápido (dev): sirve directamente la carpeta copiada a inbox.
+# Los cambios en los archivos se ven al instante, sin reiniciar.
+# Uso: ./mercury quick <app> static
+name: ${APP}-dev
+
+services:
+  app:
+    image: nginxinc/nginx-unprivileged:1.30-alpine
+    container_name: ${APP}-dev
+    restart: unless-stopped
+    volumes:
+      - ${INBOX_DIR}/${APP}:/usr/share/nginx/html:ro
+    networks:
+      - apps
+    mem_limit: 64m
+
+networks:
+  apps:
+    name: net-apps-dev
+    external: true

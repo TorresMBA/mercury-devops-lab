@@ -1,0 +1,46 @@
+# Registry privado de imágenes (agentes de Jenkins y apps) con interfaz web.
+# Se accede siempre por NPM: https://${REGISTRY_HOST}
+name: registry
+
+services:
+  registry:
+    image: registry:${REGISTRY_VERSION}
+    container_name: registry
+    restart: unless-stopped
+    environment:
+      REGISTRY_AUTH: htpasswd
+      REGISTRY_AUTH_HTPASSWD_REALM: Mercury Registry
+      REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      # Detrás de un proxy que termina TLS: evita redirecciones a http://
+      REGISTRY_HTTP_RELATIVEURLS: "true"
+      OTEL_TRACES_EXPORTER: none
+    volumes:
+      - ${HDD_DIR}/registry:/var/lib/registry
+      - ${DATA_DIR}/registry/auth:/auth:ro
+    networks:
+      - net-tools
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+
+  registry-ui:
+    image: joxit/docker-registry-ui:${REGISTRY_UI_VERSION}
+    container_name: registry-ui
+    restart: unless-stopped
+    environment:
+      SINGLE_REGISTRY: "true"
+      REGISTRY_TITLE: Mercury Registry
+      NGINX_PROXY_PASS_URL: http://registry:5000
+      DELETE_IMAGES: "true"
+      SHOW_CONTENT_DIGEST: "true"
+      TAGLIST_PAGE_SIZE: "100"
+    depends_on:
+      - registry
+    networks:
+      - net-tools
+    mem_limit: 64m
+
+networks:
+  net-tools:
+    external: true

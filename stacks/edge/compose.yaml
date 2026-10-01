@@ -1,0 +1,67 @@
+# Entrada al servidor.
+#   npm          único contenedor que publica 80/443; enruta a herramientas y apps por nombre
+#   cloudflared  túnel saliente a Cloudflare; solo ve net-apps-prod (perfil: tunnel)
+#   whoami       app de prueba para validar NPM y el túnel (perfil: test)
+name: edge
+
+services:
+  npm:
+    image: jc21/nginx-proxy-manager:${NPM_VERSION}
+    container_name: npm
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "${LAN_IP}:81:81" # panel de administración, solo LAN
+    environment:
+      TZ: ${TZ}
+      DISABLE_IPV6: "true"
+    volumes:
+      - ${DATA_DIR}/npm/data:/data
+      - ${DATA_DIR}/npm/letsencrypt:/etc/letsencrypt
+    networks:
+      - net-tools
+      - net-apps-dev
+      - net-apps-prod
+    healthcheck:
+      test: ["CMD", "/usr/bin/check-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 384m
+    security_opt:
+      - no-new-privileges:true
+
+  cloudflared:
+    image: cloudflare/cloudflared:${CLOUDFLARED_VERSION}
+    container_name: cloudflared
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    networks:
+      - net-apps-prod
+    mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+
+  whoami:
+    image: traefik/whoami:${WHOAMI_VERSION}
+    container_name: whoami-prod
+    profiles: ["test"]
+    restart: unless-stopped
+    command: --port 8080
+    networks:
+      - net-apps-prod
+    mem_limit: 32m
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  net-tools:
+    external: true
+  net-apps-dev:
+    external: true
+  net-apps-prod:
+    external: true

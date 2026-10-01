@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# mercury — operador de los stacks del servidor. Uso: ./mercury help
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+TEMPLATES="$ROOT/apps/_templates"
+# Orden de arranque para "all"
+STACKS=(edge registry jenkins sonarqube observability files management)
+RUNTIMES=(dotnet spring flask node static)
+AGENTS=(dotnet maven python node)
+
+die() { echo "error: $*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+Uso: ./mercury <comando> [argumentos]
+
+Stacks (edge registry jenkins sonarqube observability files management | all):
+  up <stack>            Levanta el stack
+  down <stack>          Detiene y elimina sus contenedores (los datos se conservan)
+  restart <stack>       Reinicia los contenedores
+  ps <stack>            Estado
+  logs <stack> [svc]    Logs en vivo
+  pull <stack>          Descarga las imágenes fijadas en su .env
+  build <stack>         Reconstruye imágenes propias (jenkins)
+  config <stack>        Muestra el compose resuelto (valida sintaxis y variables)
+  compose <stack> ...   Pasa argumentos directos a docker compose
+
+Jenkins:
+  agents                Construye y publica las imágenes de agentes en el registry
+
+Apps:
+  quick <app> <runtime> Modo rápido (dev): sirve INBOX_DIR/<app> con bind-mount
+                        runtimes: dotnet spring flask node static
+  deploy <app> <dev|prod> <tag>   Despliega la imagen apps/<app>:<tag> del registry
+  undeploy <app> <dev|prod>       Elimina el contenedor de la app
+
+Registry:
+  registry-user <user>  Crea o actualiza un usuario (htpasswd)
+  registry-gc           Libera espacio de capas sin referencias
+
+Operación:
+  backup                Ejecuta el backup ahora (requiere host/05-backup.sh)
+EOF
+}
+
+[[ $# -ge 1 ]] || { usage; exit 1; }
+[[ "$1" == help || "$1" == -h || "$1" == --help ]] && { usage; exit 0; }
+
+[[ -f "$ROOT/.env" ]] || die "falta $ROOT/.env (copia .env.example y ajústalo)"
+set -a; . "$ROOT/.env"; set +a
+
+compose() { # compose <stack> <args...>
+  local stack="$1"; shift
+  local dir="$ROOT/stacks/$stack"
+  [[ -f "$dir/compose.yaml" ]] || die "stack desconocido: $stack"
+  [[ -f "$dir/.env" ]] || die "falta $dir/.env (copia $dir/.env.example y ajústalo)"
+  docker compose --env-file "$ROOT/.env" --env-file "$dir/.env" -f "$dir/compose.yaml" "$@"
+}
+
+for_stacks() { # for_stacks <stack|all> <args...>
+  local target="$1"; shift
+  if [[ "$target" == all ]]; then
+    local s
+    for s in "${STACKS[@]}"; do
+      if [[ ! -f "$ROOT/stacks/$s/.env" ]]; then
+        echo "-- $s: omitido (sin .env)"
+        continue
+      fi
+      echo "-- $s"
+      compose "$s" "$@"
+    done
+  else
+    compose "$target" "$@"
+  fi
+}
+
+valid_app() {
+  [[ "$1" =~ ^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$ ]] || die "nombre de app inválido: '$1' (minúsculas, números y guiones)"
+}
+
+valid_env() {
+  [[ "$1" == dev || "$1" == prod ]] || die "ambiente inválido: '$1' (dev o prod)"
+}
+
+cmd="$1"; shift
+case "$cmd" in
+  up)      [[ $# -ge 1 ]] || die "uso: mercury up <stack|all>";      for_stacks "$1" up -d ;;
+  down)    [[ $# -ge 1 ]] || die "uso: mercury down <stack|all>";    for_stacks "$1" down ;;
+  restart) [[ $# -ge 1 ]] || die "uso: mercury restart <stack|all>"; for_stacks "$1" restart ;;
+  ps)      [[ $# -ge 1 ]] || die "uso: mercury ps <stack|all>";      for_stacks "$1" ps ;;
+  pull)    [[ $# -ge 1 ]] || die "uso: mercury pull <stack|all>";    for_stacks "$1" pull --ignore-buildable ;;
+  build)   [[ $# -ge 1 ]] || die "uso: mercury build <stack>";       compose "$1" build --pull ;;
+  config)  [[ $# -ge 1 ]] || die "uso: mercury config <stack|all>";  for_stacks "$1" config ;;
+  logs)
+    [[ $# -ge 1 ]] || die "uso: mercury logs <stack> [servicio]"
+    stack="$1"; shift
+    compose "$stack" logs -f --tail 100 "$@"
+    ;;
+  compose)
+    [[ $# -ge 2 ]] || die "uso: mercury compose <stack> <argumentos>"
+    stack="$1"; shift
+    compose "$stack" "$@"
+    ;;
+
+  agents)
+    [[ -f "$ROOT/stacks/jenkins/.env" ]] || die "falta stacks/jenkins/.env"
+    set -a; . "$ROOT/stacks/jenkins/.env"; set +a
+    repo="$REGISTRY_HOST/agents"
+    # El contexto es la raíz del repo: la imagen base incluye pipelines/lib y apps/_templates
+    docker build --pull -t "$repo/base:latest" \
+      --build-arg AGENT_VERSION="$AGENT_VERSION" \
+      -f "$ROOT/stacks/jenkins/agents/base/Dockerfile" "$ROOT"
+    for a in "${AGENTS[@]}"; do
+      docker build -t "$repo/$a:latest" --build-arg BASE="$repo/base:latest" "$ROOT/stacks/jenkins/agents/$a"
+    done
+    for a in base "${AGENTS[@]}"; do
+      docker push "$repo/$a:latest"
+    done
+    ;;
+
+  quick)
+    [[ $# -eq 2 ]] || die "uso: mercury quick <app> <runtime>"
+    valid_app "$1"
+    [[ " ${RUNTIMES[*]} " == *" $2 "* ]] || die "runtime inválido: '$2' (${RUNTIMES[*]})"
+    [[ -d "$INBOX_DIR/$1" ]] || die "no existe $INBOX_DIR/$1"
+    APP="$1" docker compose --env-file "$ROOT/.env" -f "$TEMPLATES/$2/compose.quick.yaml" up -d --force-recreate
+    echo "Listo: en NPM apunta $1-dev.$INT_DOMAIN a http://$1-dev:8080"
+    ;;
+
+  deploy)
+    [[ $# -eq 3 ]] || die "uso: mercury deploy <app> <dev|prod> <tag>"
+    valid_app "$1"; valid_env "$2"
+    APP="$1" APP_ENV="$2" IMAGE="$REGISTRY_HOST/apps/$1:$3" \
+      docker compose -f "$TEMPLATES/compose.deploy.yaml" up -d --pull always --wait --wait-timeout 120
+    ;;
+
+  undeploy)
+    [[ $# -eq 2 ]] || die "uso: mercury undeploy <app> <dev|prod>"
+    valid_app "$1"; valid_env "$2"
+    docker compose -p "$1-$2" down
+    ;;
+
+  registry-user)
+    [[ $# -eq 1 ]] || die "uso: mercury registry-user <usuario>"
+    file="$DATA_DIR/registry/auth/htpasswd"
+    command -v htpasswd >/dev/null || die "falta htpasswd (sudo apt install apache2-utils)"
+    if [[ -f "$file" ]]; then
+      sudo htpasswd -B "$file" "$1"
+    else
+      sudo htpasswd -B -c "$file" "$1"
+    fi
+    ;;
+
+  registry-gc)
+    docker exec registry registry garbage-collect --delete-untagged /etc/distribution/config.yml
+    ;;
+
+  backup)
+    sudo bash "$ROOT/host/backup.sh"
+    ;;
+
+  *)
+    usage
+    die "comando desconocido: $cmd"
+    ;;
+esac

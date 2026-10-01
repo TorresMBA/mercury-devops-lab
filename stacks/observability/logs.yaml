@@ -1,0 +1,40 @@
+# Logs. Incluido desde compose.yaml.
+services:
+  loki:
+    image: grafana/loki:${LOKI_VERSION}
+    container_name: loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/config.yaml
+    volumes:
+      - ./loki/config.yaml:/etc/loki/config.yaml:ro
+      - ${HDD_DIR}/loki:/loki
+    networks:
+      - obs
+    mem_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+
+  # Recolector: lee los logs de todos los contenedores por la API de Docker y los envía a Loki
+  alloy:
+    image: grafana/alloy:${ALLOY_VERSION}
+    container_name: alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - ${DATA_DIR}/alloy:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    networks:
+      - obs
+    mem_limit: 256m
+
+networks:
+  obs:
+    name: mercury-obs
+    internal: true

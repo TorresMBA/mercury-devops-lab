@@ -1,0 +1,26 @@
+# Modo rápido (dev): ejecuta el código copiado a inbox, sin construir imagen.
+# Instala las dependencias en cada arranque, así que tarda más en levantar.
+# Uso: ./mercury quick <app> flask   (repetir tras copiar una versión nueva)
+name: ${APP}-dev
+
+services:
+  app:
+    image: python:3.12-slim
+    container_name: ${APP}-dev
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ${INBOX_DIR}/${APP}:/app:ro
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      APP_MODULE: app:app
+    command: ["sh", "-c", "pip install --no-cache-dir -r requirements.txt gunicorn && exec gunicorn --bind 0.0.0.0:8080 --workers 2 \"$$APP_MODULE\""]
+    networks:
+      - apps
+    mem_limit: 512m
+
+networks:
+  apps:
+    name: net-apps-dev
+    external: true

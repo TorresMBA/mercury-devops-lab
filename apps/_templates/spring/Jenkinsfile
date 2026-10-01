@@ -1,0 +1,97 @@
+// Plantilla CI para Spring Boot con Maven. Copiar a la raíz del repo de la app y ajustar APP.
+pipeline {
+  agent none
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+  }
+
+  environment {
+    APP = 'mi-servicio' // nombre de imagen y contenedor: minúsculas y guiones
+    TAG = "${BUILD_NUMBER}"
+  }
+
+  stages {
+    stage('CI') {
+      agent { label 'maven' }
+      environment {
+        REGISTRY = credentials('registry')
+      }
+      stages {
+        stage('Build y test') {
+          steps {
+            sh 'mvn -B verify'
+          }
+        }
+
+        stage('SonarQube') {
+          steps {
+            withSonarQubeEnv('sonarqube') {
+              sh 'mvn -B sonar:sonar -Dsonar.projectKey="$APP" -Dsonar.token="$SONAR_AUTH_TOKEN"'
+            }
+          }
+        }
+
+        stage('Quality gate') {
+          steps {
+            timeout(time: 10, unit: 'MINUTES') {
+              waitForQualityGate abortPipeline: true
+            }
+          }
+        }
+
+        stage('Seguridad') {
+          steps {
+            sh '''
+              mercury-ci semgrep
+              mercury-ci trivy-fs
+            '''
+          }
+        }
+
+        stage('Imagen') {
+          steps {
+            sh '''
+              rm -rf release && mkdir release
+              cp target/*.jar release/
+              mercury-ci login
+              mercury-ci package spring release "$APP" "$TAG"
+              mercury-ci trivy-image "$(mercury-ci image-ref "$APP" "$TAG")"
+            '''
+          }
+        }
+
+        stage('Deploy dev') {
+          steps {
+            sh 'mercury-ci deploy "$APP" dev "$TAG"'
+          }
+        }
+      }
+    }
+
+    // Sin agente: la espera no ocupa RAM ni un cupo de agente
+    stage('Aprobar prod') {
+      steps {
+        timeout(time: 1, unit: 'DAYS') {
+          input message: "¿Promover ${APP}:${TAG} a prod?"
+        }
+      }
+    }
+
+    stage('Deploy prod') {
+      agent { label 'base' }
+      environment {
+        REGISTRY = credentials('registry')
+      }
+      options { skipDefaultCheckout() }
+      steps {
+        sh '''
+          mercury-ci login
+          mercury-ci deploy "$APP" prod "$TAG"
+        '''
+      }
+    }
+  }
+}

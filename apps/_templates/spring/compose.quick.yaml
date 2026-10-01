@@ -1,0 +1,25 @@
+# Modo rápido (dev): ejecuta el .jar copiado a inbox, sin construir imagen.
+# Uso: ./mercury quick <app> spring   (repetir tras copiar una versión nueva)
+name: ${APP}-dev
+
+services:
+  app:
+    image: eclipse-temurin:21-jre
+    container_name: ${APP}-dev
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ${INBOX_DIR}/${APP}:/app:ro
+    environment:
+      SERVER_PORT: "8080"
+      SPRING_PROFILES_ACTIVE: dev
+      JAVA_OPTS: -XX:MaxRAMPercentage=75.0
+    command: ["sh", "-c", "exec java $$JAVA_OPTS -jar \"$$(ls *.jar | head -n 1)\""]
+    networks:
+      - apps
+    mem_limit: 768m
+
+networks:
+  apps:
+    name: net-apps-dev
+    external: true

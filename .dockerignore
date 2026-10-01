@@ -1,0 +1,5 @@
+# Contexto de build de la imagen base de agentes (ver ./mercury agents):
+# solo viajan los pasos de pipeline y las plantillas de apps.
+*
+!pipelines/lib
+!apps/_templates

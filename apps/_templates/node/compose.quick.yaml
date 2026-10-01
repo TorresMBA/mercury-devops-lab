@@ -1,0 +1,25 @@
+# Modo rápido (dev): ejecuta el código copiado a inbox, sin construir imagen.
+# Copia el código a una carpeta escribible e instala dependencias en cada arranque.
+# Uso: ./mercury quick <app> node   (repetir tras copiar una versión nueva)
+name: ${APP}-dev
+
+services:
+  app:
+    image: node:22-alpine
+    container_name: ${APP}-dev
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ${INBOX_DIR}/${APP}:/src:ro
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+    command: ["sh", "-c", "cp -r /src/. /app && npm install --omit=dev && exec npm start"]
+    networks:
+      - apps
+    mem_limit: 512m
+
+networks:
+  apps:
+    name: net-apps-dev
+    external: true

@@ -1,0 +1,14 @@
+# Sin versión = la última compatible al construir la imagen.
+# Tras cambiar esta lista: ./mercury build jenkins && ./mercury up jenkins
+configuration-as-code
+job-dsl
+workflow-aggregator
+pipeline-stage-view
+git
+github-branch-source
+docker-plugin
+credentials-binding
+plain-credentials
+sonar
+timestamper
+prometheus

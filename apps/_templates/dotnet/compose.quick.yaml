@@ -1,0 +1,24 @@
+# Modo rápido (dev): sirve directamente la carpeta publicada en inbox, sin construir imagen.
+# Uso: ./mercury quick <app> dotnet   (repetir tras copiar una versión nueva)
+name: ${APP}-dev
+
+services:
+  app:
+    image: mcr.microsoft.com/dotnet/aspnet:8.0
+    container_name: ${APP}-dev
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ${INBOX_DIR}/${APP}:/app:ro
+    environment:
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ASPNETCORE_ENVIRONMENT: Development
+    command: ["sh", "-c", "exec dotnet \"$$(ls *.runtimeconfig.json | head -n 1 | sed 's/\\.runtimeconfig\\.json$$/.dll/')\""]
+    networks:
+      - apps
+    mem_limit: 512m
+
+networks:
+  apps:
+    name: net-apps-dev
+    external: true

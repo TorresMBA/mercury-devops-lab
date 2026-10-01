@@ -1,0 +1,25 @@
+# Despliegue único para cualquier app, venga del canal CI o del manual.
+# Lo usan `mercury-ci deploy` (agentes) y `./mercury deploy` (host).
+# Variables: APP, APP_ENV (dev|prod), IMAGE, APPS_DIR.
+# Convención: toda app escucha en el puerto 8080; NPM apunta a http://<app>-<env>:8080
+name: ${APP}-${APP_ENV}
+
+services:
+  app:
+    image: ${IMAGE}
+    container_name: ${APP}-${APP_ENV}
+    restart: unless-stopped
+    # Configuración y secretos de la app por ambiente (opcional)
+    env_file:
+      - path: ${APPS_DIR}/${APP_ENV}/${APP}.env
+        required: false
+    networks:
+      - apps
+    mem_limit: ${APP_MEM_LIMIT:-512m}
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  apps:
+    name: net-apps-${APP_ENV}
+    external: true

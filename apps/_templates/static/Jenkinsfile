@@ -1,0 +1,90 @@
+// Plantilla CI para sitios estáticos (HTML, CSS, JS). Copiar a la raíz del repo y ajustar APP y SITE_DIR.
+pipeline {
+  agent none
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+  }
+
+  environment {
+    APP = 'mi-sitio' // nombre de imagen y contenedor: minúsculas y guiones
+    SITE_DIR = '.'   // carpeta que contiene index.html
+    TAG = "${BUILD_NUMBER}"
+  }
+
+  stages {
+    stage('CI') {
+      agent { label 'base' }
+      environment {
+        REGISTRY = credentials('registry')
+      }
+      stages {
+        stage('SonarQube') {
+          steps {
+            withSonarQubeEnv('sonarqube') {
+              sh 'mercury-ci sonar "$APP"'
+            }
+          }
+        }
+
+        stage('Quality gate') {
+          steps {
+            timeout(time: 10, unit: 'MINUTES') {
+              waitForQualityGate abortPipeline: true
+            }
+          }
+        }
+
+        stage('Seguridad') {
+          steps {
+            sh '''
+              mercury-ci semgrep
+              mercury-ci trivy-fs
+            '''
+          }
+        }
+
+        stage('Imagen') {
+          steps {
+            sh '''
+              mercury-ci login
+              mercury-ci package static "$SITE_DIR" "$APP" "$TAG"
+              mercury-ci trivy-image "$(mercury-ci image-ref "$APP" "$TAG")"
+            '''
+          }
+        }
+
+        stage('Deploy dev') {
+          steps {
+            sh 'mercury-ci deploy "$APP" dev "$TAG"'
+          }
+        }
+      }
+    }
+
+    // Sin agente: la espera no ocupa RAM ni un cupo de agente
+    stage('Aprobar prod') {
+      steps {
+        timeout(time: 1, unit: 'DAYS') {
+          input message: "¿Promover ${APP}:${TAG} a prod?"
+        }
+      }
+    }
+
+    stage('Deploy prod') {
+      agent { label 'base' }
+      environment {
+        REGISTRY = credentials('registry')
+      }
+      options { skipDefaultCheckout() }
+      steps {
+        sh '''
+          mercury-ci login
+          mercury-ci deploy "$APP" prod "$TAG"
+        '''
+      }
+    }
+  }
+}

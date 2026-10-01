@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# mercury-ci — pasos compartidos por todos los pipelines (canal CI y canal manual).
+# Va instalado en la imagen base de los agentes. Tras editarlo: ./mercury agents
+#
+# Los agentes no tienen daemon propio: hablan con el Docker del host (DOCKER_HOST).
+# Por eso los escáneres se lanzan como contenedores hermanos que heredan el
+# workspace del agente con --volumes-from, en lugar de montar rutas con -v.
+set -euo pipefail
+
+: "${REGISTRY_HOST:?REGISTRY_HOST no definido}"
+
+TEMPLATES="${MERCURY_TEMPLATES:-/opt/mercury/templates}"
+AGENT_NETWORK="${AGENT_NETWORK:-mercury-jenkins}"
+export APPS_DIR="${APPS_DIR:-/srv/mercury/apps}"
+
+TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.75.0}"
+SEMGREP_IMAGE="${SEMGREP_IMAGE:-semgrep/semgrep:1.178.0}"
+SONAR_SCANNER_IMAGE="${SONAR_SCANNER_IMAGE:-sonarsource/sonar-scanner-cli:12.2}"
+
+# 0 = los hallazgos se informan pero no rompen el build; 1 = lo rompen
+STRICT="${MERCURY_SCAN_STRICT:-0}"
+SEVERITY="${MERCURY_SCAN_SEVERITY:-HIGH,CRITICAL}"
+
+SELF="$(hostname)" # dentro de un contenedor, el hostname es su ID
+
+die() { echo "mercury-ci: $*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+Uso: mercury-ci <paso> [argumentos]
+  login                               docker login en el registry (REGISTRY_USR / REGISTRY_PSW)
+  image-ref <app> <tag>               imprime el nombre completo de la imagen
+  check-inbox <app>                   valida que /inbox/<app> existe y tiene contenido
+  sonar <clave> [args sonar-scanner]  análisis SonarQube del directorio actual
+  semgrep                             SAST del directorio actual
+  trivy-fs                            dependencias vulnerables, secretos y configuración
+  package <runtime> <dir> <app> <tag> construye la imagen desde un compilado y la publica
+  trivy-image <imagen>                vulnerabilidades de la imagen final
+  deploy <app> <dev|prod> <tag>       despliega la imagen en el ambiente
+EOF
+}
+
+valid_app() {
+  [[ "$1" =~ ^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$ ]] || die "nombre de app inválido: '$1' (minúsculas, números y guiones)"
+}
+
+image_ref() { echo "$REGISTRY_HOST/apps/$1:$2"; }
+
+# Ejecuta una imagen sobre el workspace del agente, en el mismo directorio
+in_workspace() {
+  docker run --rm --volumes-from "$SELF" -w "$PWD" "$@"
+}
+
+[[ $# -ge 1 ]] || { usage; exit 1; }
+step="$1"; shift
+
+case "$step" in
+  login)
+    : "${REGISTRY_USR:?falta REGISTRY_USR (credentials('registry'))}"
+    : "${REGISTRY_PSW:?falta REGISTRY_PSW (credentials('registry'))}"
+    echo "$REGISTRY_PSW" | docker login "$REGISTRY_HOST" -u "$REGISTRY_USR" --password-stdin
+    ;;
+
+  image-ref)
+    [[ $# -eq 2 ]] || die "uso: image-ref <app> <tag>"
+    valid_app "$1"
+    image_ref "$1" "$2"
+    ;;
+
+  check-inbox)
+    [[ $# -eq 1 ]] || die "uso: check-inbox <app>"
+    valid_app "$1"
+    [[ -d "/inbox/$1" ]] || die "no existe la carpeta inbox/$1"
+    [[ -n "$(ls -A "/inbox/$1")" ]] || die "la carpeta inbox/$1 está vacía"
+    echo "inbox/$1:"
+    ls -la "/inbox/$1"
+    ;;
+
+  sonar)
+    [[ $# -ge 1 ]] || die "uso: sonar <clave-proyecto> [args]"
+    key="$1"; shift
+    : "${SONAR_HOST_URL:?ejecutar dentro de withSonarQubeEnv('sonarqube')}"
+    in_workspace \
+      -e SONAR_HOST_URL="$SONAR_HOST_URL" \
+      -e SONAR_TOKEN="${SONAR_AUTH_TOKEN:?}" \
+      "$SONAR_SCANNER_IMAGE" \
+      -Dsonar.projectKey="$key" -Dsonar.sources=. "$@"
+    ;;
+
+  semgrep)
+    args=(scan --config p/default --metrics off --json-output semgrep.json)
+    [[ "$STRICT" == 1 ]] && args+=(--error)
+    # Mismo UID que el agente: git reconoce el repo y el informe queda con su dueño
+    in_workspace --user "$(id -u):$(id -g)" -e HOME=/tmp "$SEMGREP_IMAGE" semgrep "${args[@]}" .
+    ;;
+
+  trivy-fs)
+    in_workspace -v mercury-trivy-cache:/root/.cache "$TRIVY_IMAGE" fs \
+      --scanners vuln,secret,misconfig --severity "$SEVERITY" --exit-code "$STRICT" .
+    ;;
+
+  package)
+    [[ $# -eq 4 ]] || die "uso: package <runtime> <dir> <app> <tag>"
+    runtime="$1"; context="$2"
+    valid_app "$3"
+    [[ -d "$context" ]] || die "no existe el directorio $context"
+    # Un Dockerfile propio en el compilado tiene prioridad sobre la plantilla
+    if [[ -f "$context/Dockerfile" ]]; then
+      dockerfile="$context/Dockerfile"
+    else
+      dockerfile="$TEMPLATES/$runtime/Dockerfile"
+      [[ -f "$dockerfile" ]] || die "runtime desconocido: $runtime"
+    fi
+    ref="$(image_ref "$3" "$4")"
+    docker build --pull -t "$ref" -f "$dockerfile" "$context"
+    docker push "$ref"
+    echo "Imagen publicada: $ref"
+    ;;
+
+  trivy-image)
+    [[ $# -eq 1 ]] || die "uso: trivy-image <imagen>"
+    docker run --rm --network "$AGENT_NETWORK" -e DOCKER_HOST="${DOCKER_HOST:?}" \
+      -v mercury-trivy-cache:/root/.cache "$TRIVY_IMAGE" image \
+      --severity "$SEVERITY" --exit-code "$STRICT" "$1"
+    ;;
+
+  deploy)
+    [[ $# -eq 3 ]] || die "uso: deploy <app> <dev|prod> <tag>"
+    valid_app "$1"
+    [[ "$2" == dev || "$2" == prod ]] || die "ambiente inválido: '$2' (dev o prod)"
+    APP="$1" APP_ENV="$2" IMAGE="$(image_ref "$1" "$3")" \
+      docker compose -f "$TEMPLATES/compose.deploy.yaml" up -d --pull always --wait --wait-timeout 120
+    echo "Desplegado: contenedor $1-$2 en la red net-apps-$2, puerto 8080"
+    ;;
+
+  *)
+    usage
+    die "paso desconocido: $step"
+    ;;
+esac

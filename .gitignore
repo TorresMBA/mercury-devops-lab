@@ -1,0 +1,6 @@
+# Secretos y configuración local: solo se versionan los .env.example
+.env
+!.env.example
+
+# Dashboards descargados por stacks/observability/grafana/fetch-dashboards.sh
+stacks/observability/grafana/dashboards/community-*.json

@@ -1,0 +1,20 @@
+# Canal manual por carpeta compartida: \\<LAN_IP>\inbox desde el Explorador de Windows.
+# Escribe con el mismo UID/GID que el usuario SFTP (deployer, 2000) sobre INBOX_DIR.
+name: files
+
+services:
+  samba:
+    image: dockurr/samba:${SAMBA_VERSION}
+    container_name: samba
+    restart: unless-stopped
+    environment:
+      NAME: inbox
+      USER: ${SAMBA_USER}
+      PASS: ${SAMBA_PASSWORD}
+      UID: "2000"
+      GID: "2000"
+    ports:
+      - "${LAN_IP}:445:445"
+    volumes:
+      - ${INBOX_DIR}:/storage
+    mem_limit: 128m

@@ -1,0 +1,40 @@
+# Observabilidad, dividida por función para no tener un compose gigante:
+#   metrics.yaml  Prometheus + node-exporter + cAdvisor
+#   logs.yaml     Loki + Alloy
+#   este archivo  Grafana, que consulta ambos
+name: observability
+
+include:
+  - metrics.yaml
+  - logs.yaml
+
+services:
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}
+    container_name: grafana
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      GF_SERVER_ROOT_URL: https://grafana.${INT_DOMAIN}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ${DATA_DIR}/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    networks:
+      - net-tools
+      - obs
+    mem_limit: 384m
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  net-tools:
+    external: true
+  # Red privada del stack. Debe declararse idéntica en metrics.yaml y logs.yaml.
+  obs:
+    name: mercury-obs
+    internal: true

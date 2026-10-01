@@ -1,0 +1,44 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - rules/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Host: CPU, memoria, discos, red
+  - job_name: node
+    static_configs:
+      - targets: ["host.docker.internal:9100"]
+
+  # Daemon de Docker (metrics-addr en /etc/docker/daemon.json)
+  - job_name: docker
+    static_configs:
+      - targets: ["host.docker.internal:9323"]
+
+  # Consumo por contenedor
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # Plugin prometheus de Jenkins
+  - job_name: jenkins
+    metrics_path: /prometheus/
+    static_configs:
+      - targets: ["jenkins:8080"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]

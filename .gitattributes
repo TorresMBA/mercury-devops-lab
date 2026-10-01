@@ -1,0 +1,2 @@
+# Los scripts se ejecutan en Linux: siempre LF, aunque se editen desde Windows
+* text=auto eol=lf

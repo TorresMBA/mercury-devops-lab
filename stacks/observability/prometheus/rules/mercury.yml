@@ -1,0 +1,53 @@
+# Alertas básicas. Se ven en Prometheus (Alerts) y en Grafana (Alerting).
+# Para recibirlas por correo, Telegram, etc. hay que añadir Alertmanager (docs/04).
+groups:
+  - name: mercury-host
+    rules:
+      - alert: ObjetivoCaido
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} no responde a Prometheus"
+
+      - alert: MemoriaCasiAgotada
+        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.90
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAM del host por encima del 90 % durante 10 minutos"
+
+      - alert: SwapIntenso
+        expr: rate(node_vmstat_pswpout[5m]) > 200
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "El host está moviendo memoria a swap de forma sostenida: sobra carga o falta RAM"
+
+      - alert: DiscoCasiLleno
+        expr: (1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs"}) > 0.85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.mountpoint }} supera el 85 % de uso"
+
+  - name: mercury-contenedores
+    rules:
+      - alert: ContenedorReiniciando
+        expr: changes(container_start_time_seconds{name!=""}[15m]) > 2
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.name }} se ha reiniciado más de 2 veces en 15 minutos"
+
+      - alert: ContenedorCercaDelLimite
+        expr: (container_memory_working_set_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""} > 0.90) and container_spec_memory_limit_bytes{name!=""} > 0
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.name }} usa más del 90 % de su límite de memoria"

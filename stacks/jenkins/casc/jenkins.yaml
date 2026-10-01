@@ -1,0 +1,205 @@
+# Configuración de Jenkins como código (plugin configuration-as-code).
+# Los ${...} se resuelven con las variables de entorno definidas en compose.yaml.
+# Tras editar: ./mercury up jenkins   (o Administrar Jenkins > Configuration as Code > Reload)
+
+jenkins:
+  systemMessage: "Mercury CI/CD. Configuración gestionada por código: los cambios hechos en la interfaz se pierden al reiniciar."
+  # El controller no ejecuta builds
+  numExecutors: 0
+  mode: EXCLUSIVE
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  clouds:
+    - docker:
+        name: "docker"
+        dockerApi:
+          dockerHost:
+            uri: "tcp://socket-proxy:2375"
+        # Máximo de agentes simultáneos en todo el servidor (12 GB de RAM)
+        containerCap: 2
+        templates:
+          # Una plantilla por etiqueta. Todas comparten red, variables y montajes;
+          # cambian la imagen y el límite de memoria (MB).
+          - labelString: "base"
+            name: "base"
+            instanceCapStr: "2"
+            remoteFs: "/home/jenkins/agent"
+            pullStrategy: PULL_ALWAYS
+            pullTimeout: 600
+            removeVolumes: true
+            connector:
+              attach:
+                user: "jenkins"
+            retentionStrategy:
+              idleMinutes: 1
+            dockerTemplateBase:
+              image: "${REGISTRY_HOST}/agents/base:latest"
+              pullCredentialsId: "registry"
+              network: "mercury-jenkins"
+              memoryLimit: 1024
+              memorySwap: 1024
+              environmentsString: |-
+                DOCKER_HOST=tcp://socket-proxy:2375
+                REGISTRY_HOST=${REGISTRY_HOST}
+              mounts:
+                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
+                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
+
+          - labelString: "dotnet"
+            name: "dotnet"
+            instanceCapStr: "2"
+            remoteFs: "/home/jenkins/agent"
+            pullStrategy: PULL_ALWAYS
+            pullTimeout: 600
+            removeVolumes: true
+            connector:
+              attach:
+                user: "jenkins"
+            retentionStrategy:
+              idleMinutes: 1
+            dockerTemplateBase:
+              image: "${REGISTRY_HOST}/agents/dotnet:latest"
+              pullCredentialsId: "registry"
+              network: "mercury-jenkins"
+              memoryLimit: 2048
+              memorySwap: 2048
+              environmentsString: |-
+                DOCKER_HOST=tcp://socket-proxy:2375
+                REGISTRY_HOST=${REGISTRY_HOST}
+              mounts:
+                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
+                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
+
+          - labelString: "maven"
+            name: "maven"
+            instanceCapStr: "2"
+            remoteFs: "/home/jenkins/agent"
+            pullStrategy: PULL_ALWAYS
+            pullTimeout: 600
+            removeVolumes: true
+            connector:
+              attach:
+                user: "jenkins"
+            retentionStrategy:
+              idleMinutes: 1
+            dockerTemplateBase:
+              image: "${REGISTRY_HOST}/agents/maven:latest"
+              pullCredentialsId: "registry"
+              network: "mercury-jenkins"
+              memoryLimit: 2048
+              memorySwap: 2048
+              environmentsString: |-
+                DOCKER_HOST=tcp://socket-proxy:2375
+                REGISTRY_HOST=${REGISTRY_HOST}
+              mounts:
+                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
+                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
+
+          - labelString: "python"
+            name: "python"
+            instanceCapStr: "2"
+            remoteFs: "/home/jenkins/agent"
+            pullStrategy: PULL_ALWAYS
+            pullTimeout: 600
+            removeVolumes: true
+            connector:
+              attach:
+                user: "jenkins"
+            retentionStrategy:
+              idleMinutes: 1
+            dockerTemplateBase:
+              image: "${REGISTRY_HOST}/agents/python:latest"
+              pullCredentialsId: "registry"
+              network: "mercury-jenkins"
+              memoryLimit: 1536
+              memorySwap: 1536
+              environmentsString: |-
+                DOCKER_HOST=tcp://socket-proxy:2375
+                REGISTRY_HOST=${REGISTRY_HOST}
+              mounts:
+                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
+                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
+
+          - labelString: "node"
+            name: "node"
+            instanceCapStr: "2"
+            remoteFs: "/home/jenkins/agent"
+            pullStrategy: PULL_ALWAYS
+            pullTimeout: 600
+            removeVolumes: true
+            connector:
+              attach:
+                user: "jenkins"
+            retentionStrategy:
+              idleMinutes: 1
+            dockerTemplateBase:
+              image: "${REGISTRY_HOST}/agents/node:latest"
+              pullCredentialsId: "registry"
+              network: "mercury-jenkins"
+              memoryLimit: 2048
+              memorySwap: 2048
+              environmentsString: |-
+                DOCKER_HOST=tcp://socket-proxy:2375
+                REGISTRY_HOST=${REGISTRY_HOST}
+              mounts:
+                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
+                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "registry"
+              description: "Registry privado de Mercury"
+              username: "${REGISTRY_USER}"
+              password: "${REGISTRY_PASSWORD}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "git"
+              description: "Lectura de repositorios (GitHub/GitLab)"
+              username: "${GIT_USER}"
+              password: "${GIT_TOKEN}"
+          - string:
+              scope: GLOBAL
+              id: "sonar-token"
+              description: "Token de análisis de SonarQube"
+              secret: "${SONAR_TOKEN}"
+
+unclassified:
+  location:
+    url: "https://jenkins.${INT_DOMAIN}/"
+  sonarGlobalConfiguration:
+    buildWrapperEnabled: true
+    installations:
+      - name: "sonarqube"
+        serverUrl: "https://sonar.${INT_DOMAIN}"
+        credentialsId: "sonar-token"
+
+jobs:
+  # Canal manual. El Jenkinsfile se lee del repo de infraestructura montado en el controller.
+  - script: |
+      pipelineJob('manual-release') {
+        description('Canal manual: empaqueta el compilado copiado a inbox/<APP> y lo despliega igual que el canal CI.')
+        parameters {
+          stringParam('APP', '', 'Nombre de la carpeta en inbox y de la app (minúsculas, números y guiones)')
+          choiceParam('RUNTIME', ['dotnet', 'spring', 'flask', 'node', 'static'], 'Tipo de compilado')
+          choiceParam('TARGET_ENV', ['dev', 'prod'], 'Ambiente de despliegue')
+        }
+        definition {
+          cps {
+            script(new File('/usr/share/jenkins/pipelines/manual-release/Jenkinsfile').text)
+            sandbox()
+          }
+        }
+      }

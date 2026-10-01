@@ -1,0 +1,46 @@
+// Canal manual: toma el compilado copiado por SFTP/Samba a inbox/<APP>, lo empaqueta
+// con el Dockerfile plantilla del runtime y lo despliega igual que el canal CI.
+// Los parámetros APP, RUNTIME y TARGET_ENV se definen en stacks/jenkins/casc/jenkins.yaml.
+pipeline {
+  agent { label 'base' }
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '20'))
+  }
+
+  environment {
+    REGISTRY = credentials('registry') // expone REGISTRY_USR y REGISTRY_PSW
+    TAG = "manual-${BUILD_NUMBER}"
+  }
+
+  stages {
+    stage('Validar') {
+      steps {
+        sh 'mercury-ci check-inbox "$APP"'
+      }
+    }
+
+    stage('Empaquetar') {
+      steps {
+        sh '''
+          mercury-ci login
+          mercury-ci package "$RUNTIME" "/inbox/$APP" "$APP" "$TAG"
+        '''
+      }
+    }
+
+    stage('Trivy') {
+      steps {
+        sh 'mercury-ci trivy-image "$(mercury-ci image-ref "$APP" "$TAG")"'
+      }
+    }
+
+    stage('Desplegar') {
+      steps {
+        sh 'mercury-ci deploy "$APP" "$TARGET_ENV" "$TAG"'
+      }
+    }
+  }
+}

@@ -1,0 +1,68 @@
+# Métricas. Incluido desde compose.yaml.
+services:
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION}
+    container_name: prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=15GB
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - ${HDD_DIR}/prometheus:/prometheus
+    extra_hosts:
+      # Para leer node-exporter y el daemon de Docker, que escuchan en el host
+      - host.docker.internal:host-gateway
+    networks:
+      - net-tools # alcanza a Jenkins y al host
+      - obs
+    mem_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+
+  # Métricas del host. Usa la red y los procesos del host para ver sus interfaces
+  # y discos reales; UFW solo deja llegar a :9100 desde las redes de Docker.
+  node-exporter:
+    image: prom/node-exporter:${NODE_EXPORTER_VERSION}
+    container_name: node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=:9100
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+)($$|/)
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    mem_limit: 64m
+
+  # Métricas por contenedor (CPU, memoria, red)
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:${CADVISOR_VERSION}
+    container_name: cadvisor
+    restart: unless-stopped
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
+      - --disable_metrics=percpu,sched,tcp,udp,hugetlb,referenced_memory,cpu_topology,resctrl
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    networks:
+      - obs
+    mem_limit: 192m
+
+networks:
+  net-tools:
+    external: true
+  obs:
+    name: mercury-obs
+    internal: true

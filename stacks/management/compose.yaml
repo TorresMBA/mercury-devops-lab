@@ -1,0 +1,22 @@
+# Opcional: vista web de contenedores, redes y volúmenes. Útil para aprender y diagnosticar.
+# La fuente de verdad sigue siendo este repo: no crear stacks desde Portainer.
+name: management
+
+services:
+  portainer:
+    image: portainer/portainer-ce:${PORTAINER_VERSION}
+    container_name: portainer
+    restart: unless-stopped
+    volumes:
+      # Acceso total al daemon de Docker: mantener solo en LAN y con contraseña fuerte
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_DIR}/portainer:/data
+    networks:
+      - net-tools
+    mem_limit: 256m
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  net-tools:
+    external: true
