@@ -9,6 +9,7 @@
 | Liberar RAM | `./mercury down sonarqube` cuando no vayas a analizar código (3,5 GB); `./mercury down monitoring` libera otros 1,9 GB |
 | Actualizar una imagen | Cambia la versión en `stacks/<grupo>/<stack>/.env`, luego `./mercury pull <stack> && ./mercury up <stack>` |
 | Actualizar Jenkins o sus plugins | Cambia `JENKINS_VERSION` o `plugins.txt`, luego `./mercury build jenkins && ./mercury up jenkins` |
+| Cambiar la configuración de Jenkins (carpetas, agentes, jobs por código) | Edita `stacks/devops/jenkins/casc/*.yaml`, luego `./mercury restart jenkins` (`up` no lo aplica si no cambió ningún `.env`) |
 | Añadir una cuenta de git a Jenkins | Variables en `stacks/devops/jenkins/credentials.env` y bloque en `casc/credentials.yaml`, luego `./mercury up jenkins` ([detalle](03-despliegues.md#credenciales-de-git)) |
 | Cambiar pasos de pipeline o plantillas | Edita `pipelines/lib/mercury-ci` o `apps/_templates/`, luego `./mercury agents` |
 | Limpiar imágenes viejas del host | `docker image prune -a --filter "until=168h"` |

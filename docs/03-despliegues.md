@@ -19,12 +19,35 @@ Tras el primer despliegue de una app, crea una vez su *Proxy Host* en Nginx Prox
 | Flask | Tener `requirements.txt` y exponer el objeto Flask como `app` en `app.py` (o definir `APP_MODULE`) |
 | Node | Escuchar en `process.env.PORT` y tener un script `start` en `package.json` |
 | Estático | Tener `index.html` en la raíz de la carpeta |
+| SPA (Angular, React, Vue) | Compilar a una carpeta con `index.html`; las rutas internas las resuelve el navegador |
 
 ## Canal CI
 
-1. Copia `apps/_templates/<runtime>/Jenkinsfile` a la raíz del repo de tu app y ajusta `APP` (y `PROJECT` en .NET).
-2. En Jenkins: *Nueva tarea > Pipeline*, definición *Pipeline script from SCM*, Git, URL del repo, la credencial de la cuenta dueña del repo (por ejemplo `github-mercury`), rama `main`.
+Los jobs se organizan en carpetas por tecnología y framework. Las carpetas las crea Jenkins al arrancar (están en `stacks/devops/jenkins/casc/jenkins.yaml`); cada job lo creas tú dentro de la suya.
+
+| Carpeta en Jenkins | Agente | Plantilla de Jenkinsfile (en `apps/_templates/`) | Runtime |
+|---|---|---|---|
+| `dotnet` | `dotnet` | `dotnet/Jenkinsfile` | `dotnet` |
+| `java/spring` | `maven` | `spring/Jenkinsfile` | `spring` |
+| `java/vanilla` | `maven` | `spring/Jenkinsfile` | `spring` |
+| `javascript/node` | `node` | `node/Jenkinsfile` | `node` |
+| `javascript/angular` | `node` | `spa/Jenkinsfile.angular` | `spa` |
+| `javascript/react` | `node` | `spa/Jenkinsfile.react` | `spa` |
+| `javascript/vue` | `node` | `spa/Jenkinsfile.vue` | `spa` |
+| `javascript/vanilla` | `base` | `static/Jenkinsfile` | `static` |
+| `python/flask` | `python` | `flask/Jenkinsfile` | `flask` |
+
+- **Java sin framework** usa la plantilla de Spring: sirve para cualquier proyecto Maven que genere un único JAR ejecutable (`java -jar`) y escuche en el puerto 8080.
+- **Angular, React y Vue** se compilan con el agente `node` y se sirven con nginx (runtime `spa`), que devuelve `index.html` en las rutas internas para que recargar `/clientes/5` no dé 404.
+- **.NET Framework (4.x) no está soportado**: solo compila y se ejecuta en Windows, y aquí los agentes y los contenedores son Linux. El .NET moderno (Core, 6, 8...) sí.
+
+Pasos para una app:
+
+1. Copia la plantilla de su fila a la raíz del repo de la app con el nombre `Jenkinsfile` y ajusta las variables del bloque `environment` (`APP`, y `PROJECT` en .NET o `DIST_DIR` en Angular, React y Vue).
+2. En Jenkins, entra en la carpeta de su tecnología y pulsa *Nueva tarea > Pipeline*. Definición *Pipeline script from SCM*, Git, URL del repo, la credencial de la cuenta dueña del repo (por ejemplo `github-mercury`), rama `*/main`.
 3. Lanza el build.
+
+La carpeta solo ordena: lo que decide el agente y el empaquetado es el Jenkinsfile. Para añadir una carpeta, agrega su línea al mapa `carpetas` de `casc/jenkins.yaml` y ejecuta `./mercury restart jenkins`; los jobs que ya existen dentro de las carpetas se conservan.
 
 Etapas del pipeline:
 
@@ -44,6 +67,41 @@ Por defecto los escáneres de seguridad informan pero no rompen el build. Para q
 
 **Dockerfile propio.** Si el compilado incluye un `Dockerfile` en su raíz, se usa ese en lugar de la plantilla.
 
+### Primer pipeline paso a paso (.NET)
+
+Antes de empezar, comprueba que:
+
+- `./mercury agents` terminó bien y el job de prueba de la [fase 3](02-puesta-en-marcha.md#fase-3-jenkins) arranca un agente `dotnet`.
+- SonarQube está en marcha, con `SONAR_TOKEN` en el `.env` de Jenkins y el webhook creado ([fase 4](02-puesta-en-marcha.md#fase-4-sonarqube)).
+- La credencial de git de la cuenta dueña del repo tiene su token en `credentials.env`.
+- El proyecto apunta a `net8.0`. El agente y la imagen de ejecución traen .NET 8; para otra versión cambia `DOTNET_VERSION` en `stacks/devops/jenkins/agents/dotnet/Dockerfile` y en `apps/_templates/dotnet/Dockerfile`, y ejecuta `./mercury agents`.
+
+1. **En el repo de la app**, copia `apps/_templates/dotnet/Jenkinsfile` a la raíz y ajusta dos líneas:
+   ```groovy
+   APP = 'mi-api'                       // será el nombre de la imagen, del contenedor y del proyecto en SonarQube
+   PROJECT = 'src/MiApi/MiApi.csproj'   // ruta del proyecto web, relativa a la raíz del repo
+   ```
+   Súbelo a la rama `main`.
+2. **En Jenkins**, entra en la carpeta `dotnet` > *Nueva tarea*. Nombre: el de la app. Tipo: *Pipeline*.
+   - *Pipeline > Definition*: *Pipeline script from SCM*. SCM: *Git*.
+   - *Repository URL*: la URL HTTPS del repo. *Credentials*: la de su cuenta.
+   - *Branch Specifier*: `*/main`. *Script Path*: `Jenkinsfile`.
+   - *Build Triggers > Poll SCM*: `H/5 * * * *` para que cada push dispare un build.
+3. **Construir ahora.** Con `watch docker ps` en el servidor verás aparecer el agente `dotnet`. El primer build tarda más: descarga los paquetes NuGet y las imágenes de los escáneres.
+4. **Publica dev en la LAN.** Cuando termine *Deploy dev* existe el contenedor `mi-api-dev`. En Nginx Proxy Manager crea un *Proxy Host*: dominio `mi-api-dev.int.<dominio>`, destino `http://mi-api-dev:8080`, certificado wildcard. Abre `https://mi-api-dev.int.<dominio>`.
+5. **Promueve a prod.** El pipeline queda esperando en *Aprobar prod* sin ocupar agente. Al aceptar, despliega la misma imagen como `mi-api-prod`. Para exponerla a internet, añade en el túnel de Cloudflare un *Public Hostname* que apunte a `http://mi-api-prod:8080`.
+
+Si algo falla:
+
+| Síntoma | Causa habitual |
+|---|---|
+| El build se queda en "Waiting for next available executor" | La imagen del agente no está en el registry (`./mercury agents`) o ya hay 2 agentes en marcha |
+| Falla el checkout con error de autenticación | Token caducado o sin permiso de lectura; o la credencial elegida no es de ese proveedor |
+| `NETSDK1045` en la compilación | El proyecto pide una versión de .NET más nueva que la del agente |
+| `MSB1009` o "Project file does not exist" en *Imagen* | `PROJECT` no coincide con la ruta del `.csproj` |
+| *Quality gate* se agota a los 10 minutos | Falta el webhook de SonarQube hacia `http://jenkins:8080/sonarqube-webhook/` |
+| *Deploy dev* falla tras 120 segundos | El contenedor no arranca: `docker logs mi-api-dev`. Suele faltar configuración en `/srv/mercury/apps/dev/mi-api.env` |
+
 ### Credenciales de git
 
 Jenkins puede tener varias cuentas de GitHub, GitLab o Bitbucket a la vez. Se definen en `stacks/devops/jenkins/casc/credentials.yaml`, agrupadas en un dominio por proveedor, y sus tokens se guardan en `stacks/devops/jenkins/credentials.env` (no se versiona).
@@ -59,7 +117,7 @@ Credenciales de Jenkins
 
 1. En `credentials.env`, dos líneas: `GITHUB_COMPANY_USER=...` y `GITHUB_COMPANY_TOKEN=...`.
 2. En `credentials.yaml`, un bloque `usernamePassword` con `id: "github-company"` dentro del dominio de su proveedor (el archivo trae ejemplos comentados, también para Bitbucket).
-3. `./mercury up jenkins`.
+3. `./mercury up jenkins` (recrea el contenedor porque cambió `credentials.env`).
 
 Las credenciales creadas desde la interfaz de Jenkins se pierden al reiniciar: la fuente de verdad son esos dos archivos.
 
@@ -88,6 +146,7 @@ Las credenciales creadas desde la interfaz de Jenkins se pierden al reiniciar: l
    - Spring: `mvn package` → copia solo el `.jar`
    - Flask / Node: copia el código (sin `venv` ni `node_modules`)
    - Estático: copia la carpeta del sitio
+   - Angular / React / Vue: `npm run build` → copia el contenido de la carpeta generada (la que tiene `index.html`) y elige el runtime `spa`
 2. Cópialo a `inbox/<app>/` por Samba (`\\IP\inbox`) o SFTP (usuario `deployer`). El nombre de la carpeta es el nombre de la app: minúsculas, números y guiones.
 3. En Jenkins, job **manual-release** > *Build with Parameters*: `APP`, `RUNTIME` y `TARGET_ENV`.
 
@@ -101,7 +160,7 @@ Para probar algo al momento, sin Jenkins ni imagen: el contenedor monta directam
 ./mercury quick <app> <dotnet|spring|flask|node|static>
 ```
 
-Repite el comando tras copiar una versión nueva (en sitios estáticos no hace falta). Usa el mismo nombre de contenedor que el canal normal (`<app>-dev`), así que comparte dominio en NPM; el último que despliegues es el que queda.
+Repite el comando tras copiar una versión nueva (en sitios estáticos no hace falta). El runtime `spa` no tiene modo rápido: un Angular o React compilado se prueba con `static`, sin el retorno a `index.html` en rutas internas. Usa el mismo nombre de contenedor que el canal normal (`<app>-dev`), así que comparte dominio en NPM; el último que despliegues es el que queda.
 
 ## Configuración y secretos de una app
 

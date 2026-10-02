@@ -207,7 +207,7 @@ nano stacks/devops/jenkins/credentials.env   # usuario y token de cada cuenta de
 ./mercury up jenkins
 ```
 
-Jenkins arranca ya configurado desde `stacks/devops/jenkins/casc/`: usuario administrador, la nube Docker con una plantilla de agente por lenguaje y el job `manual-release` (`jenkins.yaml`), y las credenciales (`credentials.yaml`). No hay asistente inicial. Para usar más de una cuenta de git, mira [Credenciales de git](03-despliegues.md#credenciales-de-git).
+Jenkins arranca ya configurado desde `stacks/devops/jenkins/casc/`: usuario administrador, la nube Docker con una plantilla de agente por lenguaje las carpetas por tecnología y el job `manual-release` (`jenkins.yaml`), y las credenciales (`credentials.yaml`). No hay asistente inicial. Si más adelante editas solo esos YAML, aplícalos con `./mercury restart jenkins`. Para usar más de una cuenta de git, mira [Credenciales de git](03-despliegues.md#credenciales-de-git).
 
 **Verificación.** Crea un job *Pipeline* con este script y ejecútalo mientras miras `watch docker ps` en el servidor: aparece un contenedor de agente y desaparece al terminar.
 

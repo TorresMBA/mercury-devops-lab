@@ -1,7 +1,8 @@
 # Configuración de Jenkins como código (plugin configuration-as-code).
 # Los ${...} se resuelven con las variables de entorno definidas en compose.yaml.
 # Las credenciales están en credentials.yaml, en esta misma carpeta.
-# Tras editar: ./mercury up jenkins   (o Administrar Jenkins > Configuration as Code > Reload)
+# Tras editar: ./mercury restart jenkins   (o Administrar Jenkins > Configuration as Code > Reload).
+# `up` no basta: si solo cambia este archivo, compose no recrea el contenedor.
 
 jenkins:
   systemMessage: "Mercury CI/CD. Configuración gestionada por código: los cambios hechos en la interfaz se pierden al reiniciar."
@@ -166,13 +167,37 @@ unclassified:
         credentialsId: "sonar-token"
 
 jobs:
+  # Carpetas por tecnología y framework. Los jobs de cada app se crean a mano dentro de
+  # su carpeta (Nueva tarea > Pipeline) y se conservan: este script solo crea o actualiza
+  # las carpetas. Los padres van antes que los hijos. No usar ${...} en el groovy.
+  - script: |
+      def carpetas = [
+        'dotnet':             '.NET moderno (ASP.NET Core). Agente: dotnet. Plantilla: apps/_templates/dotnet/Jenkinsfile',
+        'java':               'Java',
+        'java/spring':        'Spring Boot con Maven. Agente: maven. Plantilla: apps/_templates/spring/Jenkinsfile',
+        'java/vanilla':       'Java sin framework: JAR ejecutable que escucha en 8080. Agente: maven. Plantilla: apps/_templates/spring/Jenkinsfile',
+        'javascript':         'JavaScript y TypeScript',
+        'javascript/node':    'API o servidor Node.js. Agente: node. Plantilla: apps/_templates/node/Jenkinsfile',
+        'javascript/angular': 'Angular. Agente: node. Plantilla: apps/_templates/spa/Jenkinsfile.angular',
+        'javascript/react':   'React. Agente: node. Plantilla: apps/_templates/spa/Jenkinsfile.react',
+        'javascript/vue':     'Vue. Agente: node. Plantilla: apps/_templates/spa/Jenkinsfile.vue',
+        'javascript/vanilla': 'HTML, CSS y JS sin compilar. Agente: base. Plantilla: apps/_templates/static/Jenkinsfile',
+        'python':             'Python',
+        'python/flask':       'Flask. Agente: python. Plantilla: apps/_templates/flask/Jenkinsfile',
+      ]
+      carpetas.each { ruta, texto ->
+        folder(ruta) {
+          description(texto)
+        }
+      }
+
   # Canal manual. El Jenkinsfile se lee del repo de infraestructura montado en el controller.
   - script: |
       pipelineJob('manual-release') {
         description('Canal manual: empaqueta el compilado copiado a inbox/<APP> y lo despliega igual que el canal CI.')
         parameters {
           stringParam('APP', '', 'Nombre de la carpeta en inbox y de la app (minúsculas, números y guiones)')
-          choiceParam('RUNTIME', ['dotnet', 'spring', 'flask', 'node', 'static'], 'Tipo de compilado')
+          choiceParam('RUNTIME', ['dotnet', 'spring', 'flask', 'node', 'static', 'spa'], 'Tipo de compilado')
           choiceParam('TARGET_ENV', ['dev', 'prod'], 'Ambiente de despliegue')
         }
         definition {

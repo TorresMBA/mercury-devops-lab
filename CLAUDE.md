@@ -32,11 +32,12 @@ Tras cambiar ciertas piezas hay que reconstruir, no basta con `up`:
 | Cambio en | Comando |
 |---|---|
 | `stacks/devops/jenkins/plugins.txt`, `JENKINS_VERSION` | `./mercury build jenkins && ./mercury up jenkins` |
-| `stacks/devops/jenkins/casc/*.yaml`, `stacks/devops/jenkins/credentials.env` | `./mercury up jenkins` |
+| `stacks/devops/jenkins/casc/*.yaml` | `./mercury restart jenkins` (el YAML va montado: `up` no recrea el contenedor si no cambió el compose ni un `.env`) |
+| `stacks/devops/jenkins/.env`, `stacks/devops/jenkins/credentials.env` | `./mercury up jenkins` |
 | `pipelines/lib/mercury-ci`, `apps/_templates/**`, `stacks/devops/jenkins/agents/**` | `./mercury agents` |
 | `stacks/core/dns/AdGuardHome.yaml.tmpl` | Solo afecta a instalaciones nuevas: `dns-init` no sobrescribe una configuración existente |
 
-Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular los permisos de `socket-proxy` para builds, el arranque de AdGuard desde la plantilla, `host/06-dns.sh` y las credenciales por dominio de Jenkins (`casc/credentials.yaml` con `credentials.env`). En el servidor ya funcionan `edge`, `registry` y `jenkins`.
+Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular los permisos de `socket-proxy` para builds, el arranque de AdGuard desde la plantilla, `host/06-dns.sh`, las credenciales por dominio de Jenkins (`casc/credentials.yaml` con `credentials.env`), las carpetas de Jenkins por job-dsl y el runtime `spa`. En el servidor ya funcionan `edge`, `registry` y `jenkins`.
 
 ## Arquitectura
 
@@ -89,6 +90,8 @@ Canal manual: compilado copiado a INBOX_DIR/<app> → job manual-release ──�
 - `apps/_templates/compose.deploy.yaml` es el único compose de despliegue, para cualquier runtime y ambos canales. También lo usa `./mercury deploy` desde el host.
 - El `Dockerfile` de cada runtime empaqueta un compilado ya hecho (no compila): por eso sirve igual para el canal manual y para el CI.
 - El job `manual-release` se define en `casc/jenkins.yaml` (job-dsl), con sus parámetros ahí y no en el Jenkinsfile, que se lee del repo montado en el controller (`/usr/share/jenkins/pipelines`).
+- Las carpetas de Jenkins por tecnología y framework (`dotnet`, `java/spring`, `javascript/angular`...) también salen de job-dsl en `casc/jenkins.yaml` (mapa `carpetas`). Los jobs de cada app se crean a mano dentro y viven en `DATA_DIR/jenkins`, no en el repo. La tabla carpeta → agente → plantilla → runtime está en `docs/03-despliegues.md`.
+- Runtimes de empaquetado: `dotnet`, `spring`, `flask`, `node`, `static` y `spa` (nginx con retorno a `index.html`; lo usan Angular, React y Vue, con plantillas `spa/Jenkinsfile.angular`, `spa/Jenkinsfile.react` y `spa/Jenkinsfile.vue`). Un runtime nuevo se añade también al `choiceParam` `RUNTIME` de `manual-release`; la lista `RUNTIMES` de `mercury` solo cubre los que tienen `compose.quick.yaml` (`spa` no).
 
 ### Convenciones de las que dependen varias piezas
 
@@ -108,4 +111,4 @@ Canal manual: compilado copiado a INBOX_DIR/<app> → job manual-release ──�
 - `.gitattributes` fuerza LF: los scripts se ejecutan en Linux. No introducir CRLF.
 - El bit de ejecución no se conserva desde Windows; los scripts se invocan con `bash <script>` donde importa (systemd, `mercury backup`) y `docs/01-host.md` indica el `chmod` tras clonar. Los scripts añadidos después del clonado inicial se documentan siempre como `bash host/<script>`.
 - Mover o renombrar un stack deja atrás su `.env` no versionado en el servidor: hay que acompañarlo de un paso de migración (precedente: `host/migrate-layout.sh`).
-- En los compose, `$` literal dentro de `command:` se escribe `$$`. En `casc/jenkins.yaml`, `${VAR}` lo sustituye JCasC con variables de entorno del controller.
+- En los compose, `$` literal dentro de `command:` se escribe `$$`. En `casc/jenkins.yaml`, `${VAR}` lo sustituye JCasC con variables de entorno del controller, también dentro de los scripts de `jobs:`.
