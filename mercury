@@ -40,6 +40,8 @@ Registry:
   registry-gc           Libera espacio de capas sin referencias
 
 Operación:
+  check-dns [nombre]    Diagnostica por qué no resuelve o no responde un nombre interno
+                        (por defecto, el del registry)
   backup                Ejecuta el backup ahora (requiere host/05-backup.sh)
 EOF
 }
@@ -154,6 +156,45 @@ case "$cmd" in
 
   registry-gc)
     docker exec registry registry garbage-collect --delete-untagged /etc/distribution/config.yml
+    ;;
+
+  check-dns)
+    name="${1:-$REGISTRY_HOST}"
+    [[ "$name" == *.* ]] || name="$name.$INT_DOMAIN" # admite "jenkins" como atajo
+    echo "Nombre: $name (esperado: $LAN_IP)"
+
+    # 1. DNS público, sin pasar por el router (DNS sobre HTTPS)
+    public="$(curl -fsS -H 'accept: application/dns-json' \
+      "https://cloudflare-dns.com/dns-query?name=$name&type=A" | jq -r '[.Answer[]? | select(.type == 1) | .data] | join(" ")')"
+    if [[ -z "$public" ]]; then
+      echo "FALLO  DNS público: el nombre no existe."
+      echo "       En Cloudflare > DNS > Records crea: tipo A, nombre '*.${INT_DOMAIN%".$BASE_DOMAIN"}', contenido $LAN_IP, proxy desactivado (nube gris)."
+      exit 1
+    elif [[ "$public" != "$LAN_IP" ]]; then
+      echo "FALLO  DNS público: resuelve a '$public' en lugar de $LAN_IP."
+      echo "       Corrige el contenido del registro y desactiva el proxy (nube gris)."
+      exit 1
+    fi
+    echo "ok     DNS público: $public"
+
+    # 2. Resolución desde este servidor (pasa por el DNS de la LAN)
+    local_ip="$(getent ahostsv4 "$name" | awk '{print $1; exit}' || true)"
+    if [[ "$local_ip" != "$LAN_IP" ]]; then
+      echo "FALLO  DNS local: el servidor obtiene '${local_ip:-nada}'."
+      echo "       El registro existe, pero el DNS de tu red no lo entrega (los routers suelen bloquear"
+      echo "       respuestas con IP privadas). Ver 'Si el nombre no resuelve' en docs/02-puesta-en-marcha.md."
+      exit 1
+    fi
+    echo "ok     DNS local: $local_ip"
+
+    # 3. Respuesta HTTPS de Nginx Proxy Manager
+    if code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$name/" 2>&1)"; then
+      echo "ok     HTTPS: responde con código $code"
+    else
+      echo "FALLO  HTTPS: $code"
+      echo "       Revisa en Nginx Proxy Manager que exista el Proxy Host de $name con el certificado wildcard."
+      exit 1
+    fi
     ;;
 
   backup)

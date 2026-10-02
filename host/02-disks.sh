@@ -20,7 +20,13 @@ else
 fi
 
 mk() { # mk <dueño> <modo> <ruta>
-  install -d -o "${1%%:*}" -g "${1##*:}" -m "$2" "$3"
+  local owner="${1%%:*}"
+  local group="${1##*:}"
+  local mode="$2"
+  local path="$3"
+
+  install -d -m "$mode" "$path"
+  chown "$owner:$group" "$path"
 }
 
 log "Directorios de datos"
