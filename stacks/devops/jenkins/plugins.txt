@@ -1,14 +1,65 @@
 # Sin versión = la última compatible al construir la imagen.
 # Tras cambiar esta lista: ./mercury build jenkins && ./mercury up jenkins
-configuration-as-code
-job-dsl
-workflow-aggregator
-pipeline-stage-view
-git
-github-branch-source
-docker-plugin
-credentials-binding
-plain-credentials
-sonar
-timestamper
-prometheus
+# ============================================================
+# Jenkins Plugins - Lista de plugins para instalación automática
+# Formato: <plugin-id>:<version> o <plugin-id>:latest
+# Usa: jenkins-plugin-cli --plugin-file plugins.txt
+# ============================================================
+
+# -----------------------------------------------
+# Pipeline & Workflow (Core del CI/CD)
+# -----------------------------------------------
+workflow-aggregator:latest
+pipeline-stage-view:latest
+pipeline-utility-steps:latest
+pipeline-build-step:latest
+pipeline-input-step:latest
+pipeline-milestone-step:latest
+pipeline-graph-view:latest
+
+# -----------------------------------------------
+# Configuration as Code (JCasC)
+# -----------------------------------------------
+configuration-as-code:latest
+job-dsl:latest
+
+# -----------------------------------------------
+# SCM - Control de versiones
+# -----------------------------------------------
+git:latest
+github-branch-source:latest
+
+# -----------------------------------------------
+# Docker Integration
+# -----------------------------------------------
+docker-plugin:latest
+
+# -----------------------------------------------
+# Credentials & Security
+# -----------------------------------------------
+credentials-binding:latest
+plain-credentials:latest
+
+# -----------------------------------------------
+# SonarQube - Análisis de calidad de código
+# -----------------------------------------------
+sonar:latest
+
+# -----------------------------------------------
+# Build Tools & Utilities
+# -----------------------------------------------
+timestamper:latest
+prometheus:latest
+
+# -----------------------------------------------
+# Notificaciones
+# -----------------------------------------------
+email-ext:latest
+mailer:latest
+
+# -----------------------------------------------
+# UI & Dashboard
+# -----------------------------------------------
+blueocean:latest
+dark-theme:latest
+dashboard-view:latest
