@@ -96,6 +96,8 @@ compose() { # compose <grupo/stack> <args...>
   local stack="$1"; shift
   local dir="$ROOT/stacks/$stack"
   [[ -f "$dir/.env" ]] || die "falta stacks/$stack/.env (copia stacks/$stack/.env.example y ajústalo)"
+  # Jenkins carga además los tokens de git desde credentials.env (env_file de su compose)
+  [[ "$dir" != "$JENKINS_DIR" || -f "$dir/credentials.env" ]] || die "falta stacks/$stack/credentials.env (copia stacks/$stack/credentials.env.example y ajústalo)"
   docker compose --env-file "$ROOT/.env" --env-file "$dir/.env" -f "$dir/compose.yaml" "$@"
 }
 

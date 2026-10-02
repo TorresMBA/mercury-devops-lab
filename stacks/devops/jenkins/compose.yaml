@@ -13,11 +13,15 @@ services:
     restart: unless-stopped
     depends_on:
       - socket-proxy
+    # Tokens de las cuentas de git: pasan enteros al controller y casc/credentials.yaml
+    # los sustituye. Una cuenta nueva no obliga a tocar este archivo.
+    env_file:
+      - credentials.env
     environment:
       TZ: ${TZ}
       JAVA_OPTS: -Xmx768m -Djenkins.install.runSetupWizard=false
       CASC_JENKINS_CONFIG: /usr/share/jenkins/casc
-      # Variables que casc/jenkins.yaml sustituye con ${...}
+      # Variables que los YAML de casc/ sustituyen con ${...}
       INT_DOMAIN: ${INT_DOMAIN}
       REGISTRY_HOST: ${REGISTRY_HOST}
       INBOX_DIR: ${INBOX_DIR}
@@ -27,8 +31,6 @@ services:
       REGISTRY_USER: ${REGISTRY_USER}
       REGISTRY_PASSWORD: ${REGISTRY_PASSWORD}
       SONAR_TOKEN: ${SONAR_TOKEN}
-      GIT_USER: ${GIT_USER}
-      GIT_TOKEN: ${GIT_TOKEN}
     volumes:
       - ${DATA_DIR}/jenkins:/var/jenkins_home
       - ./casc:/usr/share/jenkins/casc:ro

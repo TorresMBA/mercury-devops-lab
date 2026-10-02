@@ -199,12 +199,15 @@ La imagen aparece en `https://registry.int.tudominio.com`.
 
 ```bash
 cp stacks/devops/jenkins/.env.example stacks/devops/jenkins/.env
-nano stacks/devops/jenkins/.env      # admin, usuario del registry, token de git
+nano stacks/devops/jenkins/.env      # admin y usuario del registry
+cp stacks/devops/jenkins/credentials.env.example stacks/devops/jenkins/credentials.env
+chmod 600 stacks/devops/jenkins/credentials.env
+nano stacks/devops/jenkins/credentials.env   # usuario y token de cada cuenta de git
 ./mercury agents                     # construye y publica las imágenes de agentes (tarda)
 ./mercury up jenkins
 ```
 
-Jenkins arranca ya configurado desde `stacks/devops/jenkins/casc/jenkins.yaml`: usuario administrador, credenciales, la nube Docker con una plantilla de agente por lenguaje y el job `manual-release`. No hay asistente inicial.
+Jenkins arranca ya configurado desde `stacks/devops/jenkins/casc/`: usuario administrador, la nube Docker con una plantilla de agente por lenguaje y el job `manual-release` (`jenkins.yaml`), y las credenciales (`credentials.yaml`). No hay asistente inicial. Para usar más de una cuenta de git, mira [Credenciales de git](03-despliegues.md#credenciales-de-git).
 
 **Verificación.** Crea un job *Pipeline* con este script y ejecútalo mientras miras `watch docker ps` en el servidor: aparece un contenedor de agente y desaparece al terminar.
 

@@ -32,11 +32,11 @@ Tras cambiar ciertas piezas hay que reconstruir, no basta con `up`:
 | Cambio en | Comando |
 |---|---|
 | `stacks/devops/jenkins/plugins.txt`, `JENKINS_VERSION` | `./mercury build jenkins && ./mercury up jenkins` |
-| `stacks/devops/jenkins/casc/jenkins.yaml` | `./mercury up jenkins` |
+| `stacks/devops/jenkins/casc/*.yaml`, `stacks/devops/jenkins/credentials.env` | `./mercury up jenkins` |
 | `pipelines/lib/mercury-ci`, `apps/_templates/**`, `stacks/devops/jenkins/agents/**` | `./mercury agents` |
 | `stacks/core/dns/AdGuardHome.yaml.tmpl` | Solo afecta a instalaciones nuevas: `dns-init` no sobrescribe una configuración existente |
 
-Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular los permisos de `socket-proxy` para builds, el arranque de AdGuard desde la plantilla y `host/06-dns.sh`. En el servidor ya funcionan `edge`, `registry` y `jenkins`.
+Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular los permisos de `socket-proxy` para builds, el arranque de AdGuard desde la plantilla, `host/06-dns.sh` y las credenciales por dominio de Jenkins (`casc/credentials.yaml` con `credentials.env`). En el servidor ya funcionan `edge`, `registry` y `jenkins`.
 
 ## Arquitectura
 
@@ -70,6 +70,8 @@ La configuración inicial de AdGuard sale de `AdGuardHome.yaml.tmpl` vía `./mer
 ### Configuración en dos niveles
 
 `mercury` invoca compose con `--env-file .env --env-file stacks/<grupo>/<stack>/.env`: el `.env` raíz tiene lo común (dominio, IP, rutas) y el del stack las versiones de imagen y los secretos. Solo se versionan los `.env.example`. Los scripts de `host/` leen el `.env` raíz a través de `host/_common.sh`.
+
+Excepción en Jenkins: los tokens de las cuentas de git van en `stacks/devops/jenkins/credentials.env` (no versionado, con su `credentials.env.example`), que el compose pasa entero al controller con `env_file`. `casc/credentials.yaml` define con ellos las credenciales, agrupadas en dominios por proveedor (ID `<proveedor>-<dueño>`). `registry` y `sonar-token` son globales y sus ID no se cambian: los usan las plantillas de agente, `mercury-ci` y los Jenkinsfile.
 
 Datos fuera del repo: `DATA_DIR` (`/srv/mercury/data`, SSD) y `HDD_DIR` (`/mnt/hdd/mercury`). Los directorios y sus dueños (UID de cada imagen) se crean en `host/02-disks.sh`; un servicio nuevo con bind-mount necesita su línea ahí.
 

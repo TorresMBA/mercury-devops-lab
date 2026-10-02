@@ -13,9 +13,15 @@ if docker ps --format '{{.Names}}' | grep -qx sonar-db; then
   docker exec sonar-db pg_dump -U sonar sonar | gzip > "$DATA_DIR/sonarqube/db-dump.sql.gz"
 fi
 
+# Configuración no versionada: los .env y los tokens de git de Jenkins
+secrets=("$ROOT/.env" "$ROOT"/stacks/*/*/.env)
+if [[ -f "$ROOT/stacks/devops/jenkins/credentials.env" ]]; then
+  secrets+=("$ROOT/stacks/devops/jenkins/credentials.env")
+fi
+
 log "restic backup"
 restic backup \
-  "$DATA_DIR" "$APPS_DIR" "$ROOT/.env" "$ROOT"/stacks/*/*/.env \
+  "$DATA_DIR" "$APPS_DIR" "${secrets[@]}" \
   --exclude "$DATA_DIR/sonarqube/db" \
   --exclude "$DATA_DIR/sonarqube/data/es*" \
   --exclude "$DATA_DIR/sonarqube/logs" \

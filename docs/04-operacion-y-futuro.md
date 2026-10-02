@@ -9,6 +9,7 @@
 | Liberar RAM | `./mercury down sonarqube` cuando no vayas a analizar código (3,5 GB); `./mercury down monitoring` libera otros 1,9 GB |
 | Actualizar una imagen | Cambia la versión en `stacks/<grupo>/<stack>/.env`, luego `./mercury pull <stack> && ./mercury up <stack>` |
 | Actualizar Jenkins o sus plugins | Cambia `JENKINS_VERSION` o `plugins.txt`, luego `./mercury build jenkins && ./mercury up jenkins` |
+| Añadir una cuenta de git a Jenkins | Variables en `stacks/devops/jenkins/credentials.env` y bloque en `casc/credentials.yaml`, luego `./mercury up jenkins` ([detalle](03-despliegues.md#credenciales-de-git)) |
 | Cambiar pasos de pipeline o plantillas | Edita `pipelines/lib/mercury-ci` o `apps/_templates/`, luego `./mercury agents` |
 | Limpiar imágenes viejas del host | `docker image prune -a --filter "until=168h"` |
 | Liberar espacio en el registry | Borra etiquetas desde la interfaz web y ejecuta `./mercury registry-gc` |
@@ -31,9 +32,23 @@ sudo bash host/04-networks.sh               # crea la red net-obs
 
 Los nombres de proyecto no cambian, así que `edge` y `registry` siguen en marcha sin recrearse. Después continúa con el paso 1 de la fase 1 de [02-puesta-en-marcha.md](02-puesta-en-marcha.md) para activar el DNS interno.
 
+### Credencial `git` única a credenciales por cuenta
+
+Si tu Jenkins se levantó cuando solo existía la credencial `git` (`GIT_USER` y `GIT_TOKEN` en el `.env` del stack), tras `git pull`:
+
+```bash
+cp stacks/devops/jenkins/credentials.env.example stacks/devops/jenkins/credentials.env
+chmod 600 stacks/devops/jenkins/credentials.env
+nano stacks/devops/jenkins/credentials.env  # pasa aquí los valores de GIT_USER y GIT_TOKEN
+./mercury config jenkins                    # no debe avisar de variables sin definir
+./mercury up jenkins
+```
+
+La credencial `git` desaparece y pasa a llamarse `github-mercury`: edita una vez cada job que la usara y elige la nueva. `GIT_USER` y `GIT_TOKEN` ya no se leen; bórralas del `.env`.
+
 ## Backups
 
-`host/backup.sh` copia cada noche a `/mnt/hdd/mercury/backups/restic`: los datos de `/srv/mercury`, un volcado de la base de datos de SonarQube y los archivos `.env`.
+`host/backup.sh` copia cada noche a `/mnt/hdd/mercury/backups/restic`: los datos de `/srv/mercury`, un volcado de la base de datos de SonarQube, los archivos `.env` y el `credentials.env` de Jenkins.
 
 ```bash
 sudo restic -r /mnt/hdd/mercury/backups/restic --password-file /root/.mercury-restic-password snapshots
@@ -72,6 +87,15 @@ Cada servicio nuevo sigue la misma receta:
 | `devops` | DefectDojo | Panel único de hallazgos de Semgrep, Trivy y SonarQube | 2-3 GB |
 
 Checkmarx no tiene edición gratuita autoalojada. Dependency-Track y DefectDojo son las alternativas libres para *gestionar* vulnerabilidades, pero ninguna cabe hoy junto a SonarQube en 12 GB: habría que alternarlas (`./mercury down sonarqube`) o ampliar la RAM. El análisis en sí ya lo hacen Semgrep y Trivy dentro de cada pipeline sin consumir memoria en reposo.
+
+### Jenkins compartido
+
+Hoy todos los usuarios de Jenkins son administradores y las credenciales sirven a cualquier job. Para que cada persona vea solo lo suyo:
+
+- Añade el plugin `matrix-auth` a `plugins.txt` (`./mercury build jenkins && ./mercury up jenkins`) y sustituye `loggedInUsersCanDoAnything` por una matriz de permisos en `casc/jenkins.yaml`.
+- Crea una carpeta por persona con sus jobs y guarda sus cuentas de git como credenciales de la carpeta, no globales. Solo `registry` y `sonar-token` siguen compartidas.
+
+Esto evita accidentes y miradas ajenas, no a alguien malintencionado: cualquier pipeline habla con el Docker del host y equivale a root en el servidor.
 
 ### Mini NAS
 

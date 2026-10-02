@@ -23,7 +23,7 @@ Tras el primer despliegue de una app, crea una vez su *Proxy Host* en Nginx Prox
 ## Canal CI
 
 1. Copia `apps/_templates/<runtime>/Jenkinsfile` a la raíz del repo de tu app y ajusta `APP` (y `PROJECT` en .NET).
-2. En Jenkins: *Nueva tarea > Pipeline*, definición *Pipeline script from SCM*, Git, URL del repo, credencial `git`, rama `main`.
+2. En Jenkins: *Nueva tarea > Pipeline*, definición *Pipeline script from SCM*, Git, URL del repo, la credencial de la cuenta dueña del repo (por ejemplo `github-mercury`), rama `main`.
 3. Lanza el build.
 
 Etapas del pipeline:
@@ -43,6 +43,43 @@ Por defecto los escáneres de seguridad informan pero no rompen el build. Para q
 **Disparo automático.** Jenkins no es visible desde internet, así que GitHub no puede enviarle webhooks. Lo más simple es que Jenkins consulte el repo: en el job, *Build Triggers > Poll SCM* con `H/5 * * * *` (cada 5 minutos).
 
 **Dockerfile propio.** Si el compilado incluye un `Dockerfile` en su raíz, se usa ese en lugar de la plantilla.
+
+### Credenciales de git
+
+Jenkins puede tener varias cuentas de GitHub, GitLab o Bitbucket a la vez. Se definen en `stacks/devops/jenkins/casc/credentials.yaml`, agrupadas en un dominio por proveedor, y sus tokens se guardan en `stacks/devops/jenkins/credentials.env` (no se versiona).
+
+```
+Credenciales de Jenkins
+├── (global)   registry, sonar-token     las usa la plataforma: no cambiar sus ID
+├── GitHub     github-mercury, ...
+└── GitLab     gitlab-mercury, ...
+```
+
+**Añadir una cuenta.** El ID sigue la forma `<proveedor>-<dueño>`:
+
+1. En `credentials.env`, dos líneas: `GITHUB_COMPANY_USER=...` y `GITHUB_COMPANY_TOKEN=...`.
+2. En `credentials.yaml`, un bloque `usernamePassword` con `id: "github-company"` dentro del dominio de su proveedor (el archivo trae ejemplos comentados, también para Bitbucket).
+3. `./mercury up jenkins`.
+
+Las credenciales creadas desde la interfaz de Jenkins se pierden al reiniciar: la fuente de verdad son esos dos archivos.
+
+**Elegir la credencial en un pipeline.**
+
+- Repo de la app: en el job, *Pipeline script from SCM > Credentials*. El desplegable solo muestra las cuentas del proveedor de la URL (con una URL de `github.com` no aparecen las de GitLab).
+- Un repo adicional dentro del Jenkinsfile:
+  ```groovy
+  dir('libs') {
+    git url: 'https://gitlab.com/grupo/libs.git', branch: 'main', credentialsId: 'gitlab-mercury'
+  }
+  ```
+- Usuario y token como variables, para un comando propio:
+  ```groovy
+  withCredentials([usernamePassword(credentialsId: 'github-company', usernameVariable: 'GIT_USR', passwordVariable: 'GIT_PSW')]) {
+    sh 'git ls-remote "https://$GIT_USR:$GIT_PSW@github.com/empresa/repo.git"'
+  }
+  ```
+
+**Otras personas.** Para que alguien más use este Jenkins con sus repos, añade su cuenta como una credencial más (`github-<persona>`). No hay aislamiento entre personas: todos los usuarios de Jenkins son administradores, cualquier Jenkinsfile puede pedir cualquier credencial por su ID y un pipeline tiene acceso casi de root al servidor a través de Docker. Compartir el Jenkins es confiar el servidor entero; la separación por carpetas está descrita en [04-operacion-y-futuro.md](04-operacion-y-futuro.md#jenkins-compartido).
 
 ## Canal manual
 

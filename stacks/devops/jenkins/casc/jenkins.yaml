@@ -1,5 +1,6 @@
 # Configuración de Jenkins como código (plugin configuration-as-code).
 # Los ${...} se resuelven con las variables de entorno definidas en compose.yaml.
+# Las credenciales están en credentials.yaml, en esta misma carpeta.
 # Tras editar: ./mercury up jenkins   (o Administrar Jenkins > Configuration as Code > Reload)
 
 jenkins:
@@ -153,28 +154,6 @@ jenkins:
               mounts:
                 - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
                 - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
-
-credentials:
-  system:
-    domainCredentials:
-      - credentials:
-          - usernamePassword:
-              scope: GLOBAL
-              id: "registry"
-              description: "Registry privado de Mercury"
-              username: "${REGISTRY_USER}"
-              password: "${REGISTRY_PASSWORD}"
-          - usernamePassword:
-              scope: GLOBAL
-              id: "git"
-              description: "Lectura de repositorios (GitHub/GitLab)"
-              username: "${GIT_USER}"
-              password: "${GIT_TOKEN}"
-          - string:
-              scope: GLOBAL
-              id: "sonar-token"
-              description: "Token de análisis de SonarQube"
-              secret: "${SONAR_TOKEN}"
 
 unclassified:
   location:
