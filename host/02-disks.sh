@@ -25,6 +25,10 @@ mk() { # mk <dueño> <modo> <ruta>
   local mode="$2"
   local path="$3"
 
+  # Lo que ya existe no se toca: algunas imágenes (postgres) cambian el dueño
+  # de su directorio al arrancar y volver a ejecutar este script lo rompería
+  [[ -d "$path" ]] && return 0
+
   install -d -m "$mode" "$path"
   chown "$owner:$group" "$path"
 }
@@ -38,6 +42,9 @@ mk root:root 755 "$DATA_DIR/npm/letsencrypt"
 mk root:root 755 "$DATA_DIR/registry/auth"
 mk root:root 755 "$HDD_DIR/registry"
 mk root:root 755 "$DATA_DIR/portainer"
+mk root:root 755 "$DATA_DIR/adguard"
+mk root:root 700 "$DATA_DIR/adguard/conf"          # contiene el hash de la contraseña del panel
+mk root:root 755 "$DATA_DIR/adguard/work"
 mk root:root 755 "$DATA_DIR/alloy"
 mk root:root 755 "$DATA_DIR/sonarqube"
 mk root:root 755 "$DATA_DIR/sonarqube/db"          # postgres ajusta el dueño al iniciar

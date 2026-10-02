@@ -4,8 +4,21 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 TEMPLATES="$ROOT/apps/_templates"
-# Orden de arranque para "all"
-STACKS=(edge registry jenkins sonarqube observability files management)
+# Stacks como <grupo>/<stack>, en orden de arranque para "all"
+STACKS=(
+  core/dns
+  core/edge
+  core/management
+  devops/registry
+  devops/jenkins
+  devops/sonarqube
+  monitoring/metrics
+  monitoring/logs
+  monitoring/grafana
+  storage/files
+)
+JENKINS_DIR="$ROOT/stacks/devops/jenkins"
+DNS_DIR="$ROOT/stacks/core/dns"
 RUNTIMES=(dotnet spring flask node static)
 AGENTS=(dotnet maven python node)
 
@@ -15,16 +28,24 @@ usage() {
   cat <<'EOF'
 Uso: ./mercury <comando> [argumentos]
 
-Stacks (edge registry jenkins sonarqube observability files management | all):
-  up <stack>            Levanta el stack
-  down <stack>          Detiene y elimina sus contenedores (los datos se conservan)
-  restart <stack>       Reinicia los contenedores
-  ps <stack>            Estado
+Un <destino> es un stack (jenkins), un grupo (devops) o "all". Ver: ./mercury list
+
+Stacks:
+  list                  Grupos y stacks disponibles
+  up <destino>          Levanta
+  down <destino>        Detiene y elimina los contenedores (los datos se conservan)
+  restart <destino>     Reinicia los contenedores
+  ps <destino>          Estado
+  pull <destino>        Descarga las imágenes fijadas en su .env
+  config <destino>      Muestra el compose resuelto (valida sintaxis y variables)
   logs <stack> [svc]    Logs en vivo
-  pull <stack>          Descarga las imágenes fijadas en su .env
   build <stack>         Reconstruye imágenes propias (jenkins)
-  config <stack>        Muestra el compose resuelto (valida sintaxis y variables)
   compose <stack> ...   Pasa argumentos directos a docker compose
+
+DNS interno:
+  dns-init              Genera la configuración inicial de AdGuard Home
+  check-dns [nombre]    Diagnostica por qué no resuelve o no responde un nombre interno
+                        (por defecto, el del registry)
 
 Jenkins:
   agents                Construye y publica las imágenes de agentes en el registry
@@ -40,8 +61,6 @@ Registry:
   registry-gc           Libera espacio de capas sin referencias
 
 Operación:
-  check-dns [nombre]    Diagnostica por qué no resuelve o no responde un nombre interno
-                        (por defecto, el del registry)
   backup                Ejecuta el backup ahora (requiere host/05-backup.sh)
 EOF
 }
@@ -52,29 +71,51 @@ EOF
 [[ -f "$ROOT/.env" ]] || die "falta $ROOT/.env (copia .env.example y ajústalo)"
 set -a; . "$ROOT/.env"; set +a
 
-compose() { # compose <stack> <args...>
+# Traduce un destino a entradas de STACKS, una por línea.
+# Acepta "all", un grupo (devops), un stack (jenkins) o la ruta completa (devops/jenkins).
+resolve_targets() {
+  local target="$1" s found=0
+  for s in "${STACKS[@]}"; do
+    if [[ "$target" == all || "$s" == "$target" || "${s%%/*}" == "$target" || "${s##*/}" == "$target" ]]; then
+      echo "$s"
+      found=1
+    fi
+  done
+  [[ $found -eq 1 ]] || die "no existe el stack o grupo '$target' (ver ./mercury list)"
+}
+
+# Como resolve_targets, pero exige que el destino sea un único stack
+resolve_one() {
+  local out
+  out="$(resolve_targets "$1")"
+  [[ "$out" != *$'\n'* ]] || die "'$1' es un grupo; este comando necesita un stack (ver ./mercury list)"
+  echo "$out"
+}
+
+compose() { # compose <grupo/stack> <args...>
   local stack="$1"; shift
   local dir="$ROOT/stacks/$stack"
-  [[ -f "$dir/compose.yaml" ]] || die "stack desconocido: $stack"
-  [[ -f "$dir/.env" ]] || die "falta $dir/.env (copia $dir/.env.example y ajústalo)"
+  [[ -f "$dir/.env" ]] || die "falta stacks/$stack/.env (copia stacks/$stack/.env.example y ajústalo)"
   docker compose --env-file "$ROOT/.env" --env-file "$dir/.env" -f "$dir/compose.yaml" "$@"
 }
 
-for_stacks() { # for_stacks <stack|all> <args...>
+for_stacks() { # for_stacks <destino> <args...>
   local target="$1"; shift
-  if [[ "$target" == all ]]; then
-    local s
-    for s in "${STACKS[@]}"; do
-      if [[ ! -f "$ROOT/stacks/$s/.env" ]]; then
-        echo "-- $s: omitido (sin .env)"
-        continue
-      fi
-      echo "-- $s"
-      compose "$s" "$@"
-    done
-  else
-    compose "$target" "$@"
+  local targets s
+  targets="$(resolve_targets "$target")"
+  if [[ "$targets" != *$'\n'* ]]; then
+    compose "$targets" "$@"
+    return
   fi
+  # Varios stacks: los que aún no tienen .env se omiten en lugar de abortar
+  while IFS= read -r s; do
+    if [[ ! -f "$ROOT/stacks/$s/.env" ]]; then
+      echo "-- $s: omitido (sin .env)"
+      continue
+    fi
+    echo "-- $s"
+    compose "$s" "$@"
+  done <<< "$targets"
 }
 
 valid_app() {
@@ -87,34 +128,130 @@ valid_env() {
 
 cmd="$1"; shift
 case "$cmd" in
-  up)      [[ $# -ge 1 ]] || die "uso: mercury up <stack|all>";      for_stacks "$1" up -d ;;
-  down)    [[ $# -ge 1 ]] || die "uso: mercury down <stack|all>";    for_stacks "$1" down ;;
-  restart) [[ $# -ge 1 ]] || die "uso: mercury restart <stack|all>"; for_stacks "$1" restart ;;
-  ps)      [[ $# -ge 1 ]] || die "uso: mercury ps <stack|all>";      for_stacks "$1" ps ;;
-  pull)    [[ $# -ge 1 ]] || die "uso: mercury pull <stack|all>";    for_stacks "$1" pull --ignore-buildable ;;
-  build)   [[ $# -ge 1 ]] || die "uso: mercury build <stack>";       compose "$1" build --pull ;;
-  config)  [[ $# -ge 1 ]] || die "uso: mercury config <stack|all>";  for_stacks "$1" config ;;
+  list)
+    group=""
+    for s in "${STACKS[@]}"; do
+      if [[ "${s%%/*}" != "$group" ]]; then
+        group="${s%%/*}"
+        printf '%s\n' "$group"
+      fi
+      state="sin .env"
+      [[ -f "$ROOT/stacks/$s/.env" ]] && state="configurado"
+      printf '  %-12s %s\n' "${s##*/}" "$state"
+    done
+    ;;
+
+  up)      [[ $# -ge 1 ]] || die "uso: mercury up <destino>";      for_stacks "$1" up -d ;;
+  down)    [[ $# -ge 1 ]] || die "uso: mercury down <destino>";    for_stacks "$1" down ;;
+  restart) [[ $# -ge 1 ]] || die "uso: mercury restart <destino>"; for_stacks "$1" restart ;;
+  ps)      [[ $# -ge 1 ]] || die "uso: mercury ps <destino>";      for_stacks "$1" ps ;;
+  pull)    [[ $# -ge 1 ]] || die "uso: mercury pull <destino>";    for_stacks "$1" pull --ignore-buildable ;;
+  config)  [[ $# -ge 1 ]] || die "uso: mercury config <destino>";  for_stacks "$1" config ;;
+  build)
+    [[ $# -ge 1 ]] || die "uso: mercury build <stack>"
+    stack="$(resolve_one "$1")"
+    compose "$stack" build --pull
+    ;;
   logs)
     [[ $# -ge 1 ]] || die "uso: mercury logs <stack> [servicio]"
-    stack="$1"; shift
+    stack="$(resolve_one "$1")"; shift
     compose "$stack" logs -f --tail 100 "$@"
     ;;
   compose)
     [[ $# -ge 2 ]] || die "uso: mercury compose <stack> <argumentos>"
-    stack="$1"; shift
+    stack="$(resolve_one "$1")"; shift
     compose "$stack" "$@"
     ;;
 
+  dns-init)
+    [[ -f "$DNS_DIR/.env" ]] || die "falta stacks/core/dns/.env (copia stacks/core/dns/.env.example y ajústalo)"
+    set -a; . "$DNS_DIR/.env"; set +a
+    target="$DATA_DIR/adguard/conf/AdGuardHome.yaml"
+    if sudo test -f "$target"; then
+      echo "Ya existe $target: no se modifica."
+      echo "AdGuard guarda ahí los cambios hechos desde el panel. Para empezar de cero, bórralo y repite."
+      exit 0
+    fi
+    sudo test -d "$(dirname "$target")" || die "no existe $(dirname "$target") (ejecuta: sudo bash host/02-disks.sh)"
+    [[ "$ADGUARD_PASSWORD" != cambiar* ]] || die "define ADGUARD_PASSWORD en stacks/core/dns/.env"
+    command -v htpasswd >/dev/null || die "falta htpasswd (sudo apt install apache2-utils)"
+    # AdGuard guarda la contraseña como hash bcrypt; htpasswd imprime "usuario:hash"
+    hash="$(htpasswd -B -C 10 -n -i "$ADGUARD_USER" <<< "$ADGUARD_PASSWORD" | tr -d '[:space:]')"
+    hash="${hash#*:}"
+    [[ "$hash" == \$2* ]] || die "htpasswd no devolvió un hash bcrypt"
+    conf="$(grep -v '^#' "$DNS_DIR/AdGuardHome.yaml.tmpl")"
+    conf="${conf//__ADGUARD_USER__/$ADGUARD_USER}"
+    conf="${conf//__ADGUARD_HASH__/$hash}"
+    conf="${conf//__INT_DOMAIN__/$INT_DOMAIN}"
+    conf="${conf//__LAN_IP__/$LAN_IP}"
+    printf '%s\n' "$conf" | sudo tee "$target" >/dev/null
+    sudo chmod 600 "$target"
+    echo "Creado $target (*.$INT_DOMAIN -> $LAN_IP). Siguiente: ./mercury up dns"
+    ;;
+
+  check-dns)
+    name="${1:-$REGISTRY_HOST}"
+    [[ "$name" == *.* ]] || name="$name.$INT_DOMAIN" # admite "jenkins" como atajo
+    echo "Nombre: $name (esperado: $LAN_IP)"
+    running="$(docker ps --format '{{.Names}}')"
+
+    # 1. AdGuard conoce el nombre
+    if grep -qx adguard <<< "$running"; then
+      answer="$(docker exec adguard nslookup "$name" 127.0.0.1 2>/dev/null \
+        | awk '/^Name:/ {f = 1} f && /^Address/ {print $NF; exit}' || true)"
+      if [[ "$answer" != "$LAN_IP" ]]; then
+        echo "FALLO  AdGuard: responde '${answer:-nada}'."
+        echo "       En el panel de AdGuard > Filtros > Reescrituras DNS añade: *.$INT_DOMAIN -> $LAN_IP"
+        exit 1
+      fi
+      echo "ok     AdGuard: $answer"
+    else
+      echo "aviso  AdGuard no está en marcha (./mercury up dns); se comprueba el DNS que use el servidor."
+    fi
+
+    # 2. El servidor lo resuelve (lo usan docker login, pull y push)
+    local_ip="$(getent ahostsv4 "$name" | awk '{print $1; exit}' || true)"
+    if [[ "$local_ip" != "$LAN_IP" ]]; then
+      echo "FALLO  Servidor: obtiene '${local_ip:-nada}'."
+      echo "       El servidor no está consultando a AdGuard para $INT_DOMAIN. Ejecuta: sudo bash host/06-dns.sh"
+      exit 1
+    fi
+    echo "ok     Servidor: $local_ip"
+
+    # 3. Un contenedor nuevo lo resuelve (lo necesitan Jenkins y los escáneres).
+    #    Se reutiliza la imagen de AdGuard, que ya está descargada y trae nslookup.
+    if grep -qx adguard <<< "$running"; then
+      image="$(docker inspect adguard --format '{{.Config.Image}}')"
+      inner="$(docker run --rm --entrypoint nslookup "$image" "$name" 2>/dev/null \
+        | awk '/^Name:/ {f = 1} f && /^Address/ {print $NF; exit}' || true)"
+      if [[ "$inner" != "$LAN_IP" ]]; then
+        echo "FALLO  Contenedores: obtienen '${inner:-nada}'."
+        echo "       Falta la clave \"dns\" en /etc/docker/daemon.json. Ejecuta: sudo bash host/06-dns.sh"
+        exit 1
+      fi
+      echo "ok     Contenedores: $inner"
+    fi
+
+    # 4. Nginx Proxy Manager responde por HTTPS
+    if code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$name/" 2>&1)"; then
+      echo "ok     HTTPS: responde con código $code"
+    else
+      echo "FALLO  HTTPS: $code"
+      echo "       Revisa en Nginx Proxy Manager que exista el Proxy Host de $name con el certificado wildcard."
+      exit 1
+    fi
+    ;;
+
   agents)
-    [[ -f "$ROOT/stacks/jenkins/.env" ]] || die "falta stacks/jenkins/.env"
-    set -a; . "$ROOT/stacks/jenkins/.env"; set +a
+    [[ -f "$JENKINS_DIR/.env" ]] || die "falta stacks/devops/jenkins/.env"
+    set -a; . "$JENKINS_DIR/.env"; set +a
     repo="$REGISTRY_HOST/agents"
     # El contexto es la raíz del repo: la imagen base incluye pipelines/lib y apps/_templates
     docker build --pull -t "$repo/base:latest" \
       --build-arg AGENT_VERSION="$AGENT_VERSION" \
-      -f "$ROOT/stacks/jenkins/agents/base/Dockerfile" "$ROOT"
+      -f "$JENKINS_DIR/agents/base/Dockerfile" "$ROOT"
     for a in "${AGENTS[@]}"; do
-      docker build -t "$repo/$a:latest" --build-arg BASE="$repo/base:latest" "$ROOT/stacks/jenkins/agents/$a"
+      docker build -t "$repo/$a:latest" --build-arg BASE="$repo/base:latest" "$JENKINS_DIR/agents/$a"
     done
     for a in base "${AGENTS[@]}"; do
       docker push "$repo/$a:latest"
@@ -156,45 +293,6 @@ case "$cmd" in
 
   registry-gc)
     docker exec registry registry garbage-collect --delete-untagged /etc/distribution/config.yml
-    ;;
-
-  check-dns)
-    name="${1:-$REGISTRY_HOST}"
-    [[ "$name" == *.* ]] || name="$name.$INT_DOMAIN" # admite "jenkins" como atajo
-    echo "Nombre: $name (esperado: $LAN_IP)"
-
-    # 1. DNS público, sin pasar por el router (DNS sobre HTTPS)
-    public="$(curl -fsS -H 'accept: application/dns-json' \
-      "https://cloudflare-dns.com/dns-query?name=$name&type=A" | jq -r '[.Answer[]? | select(.type == 1) | .data] | join(" ")')"
-    if [[ -z "$public" ]]; then
-      echo "FALLO  DNS público: el nombre no existe."
-      echo "       En Cloudflare > DNS > Records crea: tipo A, nombre '*.${INT_DOMAIN%".$BASE_DOMAIN"}', contenido $LAN_IP, proxy desactivado (nube gris)."
-      exit 1
-    elif [[ "$public" != "$LAN_IP" ]]; then
-      echo "FALLO  DNS público: resuelve a '$public' en lugar de $LAN_IP."
-      echo "       Corrige el contenido del registro y desactiva el proxy (nube gris)."
-      exit 1
-    fi
-    echo "ok     DNS público: $public"
-
-    # 2. Resolución desde este servidor (pasa por el DNS de la LAN)
-    local_ip="$(getent ahostsv4 "$name" | awk '{print $1; exit}' || true)"
-    if [[ "$local_ip" != "$LAN_IP" ]]; then
-      echo "FALLO  DNS local: el servidor obtiene '${local_ip:-nada}'."
-      echo "       El registro existe, pero el DNS de tu red no lo entrega (los routers suelen bloquear"
-      echo "       respuestas con IP privadas). Ver 'Si el nombre no resuelve' en docs/02-puesta-en-marcha.md."
-      exit 1
-    fi
-    echo "ok     DNS local: $local_ip"
-
-    # 3. Respuesta HTTPS de Nginx Proxy Manager
-    if code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$name/" 2>&1)"; then
-      echo "ok     HTTPS: responde con código $code"
-    else
-      echo "FALLO  HTTPS: $code"
-      echo "       Revisa en Nginx Proxy Manager que exista el Proxy Host de $name con el certificado wildcard."
-      exit 1
-    fi
     ;;
 
   backup)

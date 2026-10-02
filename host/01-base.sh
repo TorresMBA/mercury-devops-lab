@@ -74,6 +74,8 @@ ufw limit 22/tcp
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw allow from "$LAN_SUBNET" to any port 81,445 proto tcp
+# DNS de la LAN (AdGuard Home)
+ufw allow from "$LAN_SUBNET" to any port 53
 # Prometheus (contenedor) lee node-exporter y las métricas del daemon de Docker en el host
 ufw allow from "$DOCKER_POOL" to any port 9100,9323 proto tcp
 ufw --force enable

@@ -92,4 +92,4 @@ docker logs -f mi-api-prod                        # logs (también en Grafana: {
 
 Dev y prod están separados por red, no por máquina: un contenedor de `net-apps-dev` no puede hablar con uno de `net-apps-prod`, y el túnel de Cloudflare solo ve prod. Comparten CPU y RAM, así que el límite de memoria por contenedor es lo que evita que una prueba en dev afecte a producción.
 
-Si una app necesita base de datos, créala como un stack propio en `stacks/` con su red privada `internal` y conecta la app también a esa red, siguiendo el modelo de `stacks/sonarqube`.
+Si una app necesita base de datos, créala como un stack propio (por ejemplo en `stacks/apps/<nombre>-db`) con su red privada `internal` y conecta la app también a esa red, siguiendo el modelo de `stacks/devops/sonarqube`.

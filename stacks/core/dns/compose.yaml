@@ -1,0 +1,25 @@
+# DNS de la red local. Resuelve *.${INT_DOMAIN} hacia este servidor y reenvía el
+# resto a internet por DNS cifrado (DoH), bloqueando publicidad de paso.
+# La configuración inicial la genera `./mercury dns-init`; después se gestiona
+# desde el panel (https://adguard.${INT_DOMAIN}) y AdGuard la guarda en su YAML.
+name: dns
+
+services:
+  adguard:
+    image: adguard/adguardhome:${ADGUARD_VERSION}
+    container_name: adguard
+    restart: unless-stopped
+    ports:
+      # Solo en la IP LAN: el resolver local de Ubuntu sigue usando 127.0.0.53
+      - "${LAN_IP}:53:53/tcp"
+      - "${LAN_IP}:53:53/udp"
+    volumes:
+      - ${DATA_DIR}/adguard/conf:/opt/adguardhome/conf
+      - ${DATA_DIR}/adguard/work:/opt/adguardhome/work
+    networks:
+      - net-tools
+    mem_limit: 256m
+
+networks:
+  net-tools:
+    external: true

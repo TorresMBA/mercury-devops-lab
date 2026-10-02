@@ -5,8 +5,9 @@
 | Tarea | Cómo |
 |---|---|
 | Ver el estado general | Grafana > *Mercury - Resumen*, o `docker stats --no-stream` |
-| Liberar RAM | `./mercury down sonarqube` cuando no vayas a analizar código (3,5 GB) |
-| Actualizar una imagen | Cambia la versión en `stacks/<stack>/.env`, luego `./mercury pull <stack> && ./mercury up <stack>` |
+| Ver qué hay y qué está configurado | `./mercury list` |
+| Liberar RAM | `./mercury down sonarqube` cuando no vayas a analizar código (3,5 GB); `./mercury down monitoring` libera otros 1,9 GB |
+| Actualizar una imagen | Cambia la versión en `stacks/<grupo>/<stack>/.env`, luego `./mercury pull <stack> && ./mercury up <stack>` |
 | Actualizar Jenkins o sus plugins | Cambia `JENKINS_VERSION` o `plugins.txt`, luego `./mercury build jenkins && ./mercury up jenkins` |
 | Cambiar pasos de pipeline o plantillas | Edita `pipelines/lib/mercury-ci` o `apps/_templates/`, luego `./mercury agents` |
 | Limpiar imágenes viejas del host | `docker image prune -a --filter "until=168h"` |
@@ -14,6 +15,21 @@
 | Backup manual | `./mercury backup` |
 
 Actualiza de una en una y lee las notas de versión de SonarQube y Jenkins antes de saltar de versión mayor: SonarQube migra su base de datos y no permite volver atrás sin restaurar un backup.
+
+## Migrar desde la estructura anterior
+
+Si clonaste el repo cuando los stacks estaban en `stacks/<stack>`, tras `git pull` hay que mover los `.env` (git no mueve archivos ignorados):
+
+```bash
+cd /opt/mercury && git pull
+bash host/migrate-layout.sh                 # mueve los .env a stacks/<grupo>/<stack>
+sudo bash host/02-disks.sh                  # crea los directorios nuevos (no toca los existentes)
+sudo bash host/04-networks.sh               # crea la red net-obs
+./mercury list                              # los stacks que ya usabas aparecen como "configurado"
+./mercury up jenkins                        # se recrea: cambió la ruta de sus montajes
+```
+
+Los nombres de proyecto no cambian, así que `edge` y `registry` siguen en marcha sin recrearse. Después continúa con el paso 1 de la fase 1 de [02-puesta-en-marcha.md](02-puesta-en-marcha.md) para activar el DNS interno.
 
 ## Backups
 
@@ -30,32 +46,42 @@ No se copian las imágenes del registry, las métricas ni los logs: se pueden re
 
 ## Alertas
 
-Las reglas de `stacks/observability/prometheus/rules/mercury.yml` ya se evalúan y se ven en Grafana (*Alerting > Alert rules*). Para recibir avisos, la vía con menos piezas es crear un *Contact point* en Grafana (Telegram, correo, Discord) y una política de notificación. Alertmanager como contenedor aparte solo compensa cuando quieras gestionar las rutas de aviso como código; es la pieza que usa el stack equivalente en Kubernetes.
+Las reglas de `stacks/monitoring/metrics/prometheus/rules/mercury.yml` ya se evalúan y se ven en Grafana (*Alerting > Alert rules*). Para recibir avisos, la vía con menos piezas es crear un *Contact point* en Grafana (Telegram, correo, Discord) y una política de notificación. Alertmanager como contenedor aparte solo compensa cuando quieras gestionar las rutas de aviso como código; es la pieza que usa el stack equivalente en Kubernetes.
 
 ## Acceso remoto por VPN
 
-Cuando lo necesites, instala Tailscale o WireGuard **en el host**, no en un contenedor. Con Tailscale, anuncia la subred de la LAN (`--advertise-routes`) y los nombres `*.int.<dominio>` funcionarán igual desde fuera, porque resuelven a la IP privada del servidor. No hay que cambiar nada en los stacks.
+Cuando lo necesites, instala Tailscale o WireGuard **en el host**, no en un contenedor. Con Tailscale, anuncia la subred de la LAN (`--advertise-routes`) y configura la IP LAN del servidor como DNS de la red de Tailscale (*split DNS* para `int.<dominio>`): los nombres `*.int.<dominio>` los resuelve AdGuard y funcionarán igual desde fuera. No hay que cambiar nada en los stacks.
 
 ## Añadir stacks nuevos
 
 Cada servicio nuevo sigue la misma receta:
 
-1. Carpeta `stacks/<nombre>/` con `compose.yaml` y `.env.example`.
+1. Carpeta `stacks/<grupo>/<nombre>/` con `compose.yaml` y `.env.example`. Usa un grupo existente si encaja; si no, crea uno (`nas`, `iot`).
 2. `name:` explícito, versión de imagen en variable, `mem_limit`, `restart: unless-stopped`.
 3. Sin `ports:` salvo que el protocolo no sea HTTP. Para interfaces web, conecta el servicio a `net-tools` y crea su *Proxy Host* en NPM.
 4. Red privada `internal: true` para sus bases de datos.
 5. Datos en `${DATA_DIR}/<nombre>` (SSD) o `${HDD_DIR}/<nombre>` (HDD); añade el directorio a `host/02-disks.sh`.
-6. Añade el nombre a la lista `STACKS` del script `mercury`.
+6. Añade `<grupo>/<nombre>` a la lista `STACKS` del script `mercury`, en la posición en que deba arrancar. El nombre corto debe ser único entre todos los grupos.
+
+### Candidatos por grupo
+
+| Grupo | Stack | Para qué | RAM aproximada |
+|---|---|---|---|
+| `monitoring` | `uptime` (Uptime Kuma) | Comprobar cada minuto que tus URLs responden y avisar si caen | 0,15 GB |
+| `devops` | Dependency-Track | Inventario de dependencias vulnerables de todos tus proyectos a lo largo del tiempo (Trivy ya las detecta en cada build) | 3-4 GB |
+| `devops` | DefectDojo | Panel único de hallazgos de Semgrep, Trivy y SonarQube | 2-3 GB |
+
+Checkmarx no tiene edición gratuita autoalojada. Dependency-Track y DefectDojo son las alternativas libres para *gestionar* vulnerabilidades, pero ninguna cabe hoy junto a SonarQube en 12 GB: habría que alternarlas (`./mercury down sonarqube`) o ampliar la RAM. El análisis en sí ya lo hacen Semgrep y Trivy dentro de cada pipeline sin consumir memoria en reposo.
 
 ### Mini NAS
 
-- **Compartir archivos**: un segundo servicio Samba en un stack `nas/` con una carpeta de `/mnt/hdd/mercury/nas`. El stack `files` muestra cómo.
+- **Compartir archivos**: un stack `storage/nas` con un segundo servicio Samba sobre una carpeta de `/mnt/hdd/mercury/nas`. El stack `storage/files` muestra cómo.
 - **Nube personal** (Nextcloud, Immich): cada uno en su stack, con su base de datos en red `internal`.
 - Un único HDD no es almacenamiento seguro para datos irreemplazables. Antes de guardar fotos o documentos, añade un segundo disco o un backup remoto.
 
 ### IoT
 
-Stack `iot/` con Mosquitto (MQTT), Home Assistant y, si quieres, Node-RED:
+Grupo `iot/` con Mosquitto (MQTT), Home Assistant y, si quieres, Node-RED:
 
 - Crea una red `net-iot` propia en `host/04-networks.sh`. Los dispositivos IoT son la parte menos fiable de una red doméstica: no deben poder alcanzar Jenkins ni el registry.
 - MQTT no es HTTP, así que Mosquitto sí publica su puerto: lígalo a la IP de la LAN (`${LAN_IP}:1883:1883`) y abre el puerto en UFW solo para la subred.
@@ -74,6 +100,7 @@ Lo que has montado aquí tiene equivalente directo. Cuando des el salto, estos c
 | `container_name` resuelto por DNS en la red | Service (`<nombre>.<namespace>.svc`) |
 | Nginx Proxy Manager | Ingress Controller (Traefik, ingress-nginx) o Gateway API |
 | Certificado wildcard por DNS-01 | cert-manager con el mismo desafío DNS de Cloudflare |
+| AdGuard con la reescritura `*.int` | CoreDNS dentro del clúster; AdGuard sigue siendo el DNS de la LAN |
 | Redes `net-apps-dev` / `net-apps-prod` | Namespaces + NetworkPolicy |
 | `.env` y archivos `<app>.env` | ConfigMap y Secret |
 | Directorios en `/srv/mercury` | PersistentVolume / PersistentVolumeClaim |
@@ -86,7 +113,7 @@ Lo que has montado aquí tiene equivalente directo. Cuando des el salto, estos c
 
 Recomendación para este hardware: aprende con **k3s** (Kubernetes ligero, un solo binario). El plano de control consume entre 0,6 y 1 GB, así que no cabe junto a todo lo actual con holgura. Dos opciones realistas:
 
-1. Detener `sonarqube` y `observability` mientras practicas con k3s en el mismo servidor.
+1. Detener `sonarqube` y `monitoring` mientras practicas con k3s en el mismo servidor.
 2. Practicar primero en tu PC con `kind` o `k3d` (Kubernetes dentro de Docker) y migrar el servidor cuando te sientas cómodo, empezando por las apps y dejando Jenkins para el final.
 
 El orden de aprendizaje que mejor aprovecha lo que ya sabes: Pods y Deployments → Services e Ingress → ConfigMaps y Secrets → volúmenes → Helm → despliegue continuo con Argo CD.

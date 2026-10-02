@@ -60,6 +60,8 @@ sudo passwd deployer         # contraseña del usuario del canal manual (SFTP)
 
 Cierra la sesión SSH y vuelve a entrar para que tu usuario pertenezca al grupo `docker`.
 
+Hay dos scripts más que se ejecutan más adelante, cuando lo indique la guía siguiente: `host/06-dns.sh` (tras levantar AdGuard) y `host/05-backup.sh`.
+
 Qué hace cada cosa y por qué:
 
 | Ajuste | Motivo |
@@ -67,13 +69,13 @@ Qué hace cada cosa y por qué:
 | `vm.max_map_count=524288` | Requisito del Elasticsearch embebido de SonarQube; sin él no arranca |
 | Swap hasta 8 GB, `swappiness=10` | Colchón para picos de memoria durante los builds sin usar swap en condiciones normales |
 | SSH sin root y solo con llaves | El acceso por contraseña solo queda para `deployer`, que está limitado a SFTP dentro de su carpeta |
-| UFW: denegar todo lo entrante salvo 22, 80, 443 (y 81, 445 desde la LAN) | Reduce lo expuesto al mínimo |
+| UFW: denegar todo lo entrante salvo 22, 80, 443 (y 53, 81, 445 desde la LAN) | Reduce lo expuesto al mínimo |
 | `daemon.json`: rotación de logs | Sin ella, los logs de los contenedores crecen hasta llenar el disco |
 | `daemon.json`: `live-restore` | Los contenedores siguen en marcha mientras se actualiza el daemon de Docker |
 | `daemon.json`: `default-address-pools` | Todas las redes de Docker salen de `10.200.0.0/16`: predecible y sin choques con la LAN |
 | `daemon.json`: `metrics-addr` | Prometheus lee las métricas del propio daemon |
 
-> **Docker y UFW.** Los puertos que un contenedor publica con `ports:` no pasan por UFW: Docker escribe sus propias reglas de red. Por eso la protección real es que solo Nginx Proxy Manager y Samba publiquen puertos, y que los puertos de administración se liguen a la IP de la LAN.
+> **Docker y UFW.** Los puertos que un contenedor publica con `ports:` no pasan por UFW: Docker escribe sus propias reglas de red. Por eso la protección real es que solo Nginx Proxy Manager, AdGuard y Samba publiquen puertos, y que los puertos de administración se liguen a la IP de la LAN.
 
 ## Verificación
 
@@ -86,8 +88,8 @@ docker info | grep -A3 "Default Address"   # 10.200.0.0/16
 docker network ls                          # net-tools, net-apps-dev, net-apps-prod
 ```
 
-Desde otra PC de la LAN, comprueba que solo responden los puertos previstos (22 ahora; 80, 443, 81 y 445 cuando levantes los stacks):
+Desde otra PC de la LAN, comprueba que solo responden los puertos previstos (22 ahora; 53, 80, 443, 81 y 445 cuando levantes los stacks):
 
 ```powershell
-22,80,443,81,445,8080,9000,9090 | % { "$_ : " + (Test-NetConnection IP_DEL_SERVIDOR -Port $_ -WarningAction SilentlyContinue).TcpTestSucceeded }
+22,53,80,443,81,445,8080,9000,9090 | % { "$_ : " + (Test-NetConnection IP_DEL_SERVIDOR -Port $_ -WarningAction SilentlyContinue).TcpTestSucceeded }
 ```

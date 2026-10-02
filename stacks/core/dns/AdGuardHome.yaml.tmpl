@@ -1,0 +1,34 @@
+# Configuración inicial de AdGuard Home. `./mercury dns-init` sustituye los __VALORES__
+# y la copia a ${DATA_DIR}/adguard/conf/AdGuardHome.yaml solo si aún no existe.
+# Lo que no aparece aquí toma el valor por defecto de AdGuard.
+http:
+  address: 0.0.0.0:80
+
+users:
+  - name: __ADGUARD_USER__
+    password: __ADGUARD_HASH__
+
+dns:
+  bind_hosts:
+    - 0.0.0.0
+  port: 53
+  # Consultas a internet cifradas (DNS sobre HTTPS), repartidas entre dos proveedores
+  upstream_dns:
+    - https://cloudflare-dns.com/dns-query
+    - https://dns.quad9.net/dns-query
+  # Solo para resolver los nombres de los servidores de arriba
+  bootstrap_dns:
+    - 1.1.1.1
+    - 9.9.9.9
+  # Sin límite: todos los contenedores consultan desde la misma IP y un build
+  # (npm, maven, nuget) supera con facilidad el límite por defecto de 20 por segundo
+  ratelimit: 0
+
+filtering:
+  # Todo nombre interno apunta a Nginx Proxy Manager en este servidor
+  rewrites:
+    - domain: '*.__INT_DOMAIN__'
+      answer: __LAN_IP__
+      enabled: true
+
+schema_version: 34

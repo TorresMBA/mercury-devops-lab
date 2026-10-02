@@ -15,10 +15,11 @@ fi
 
 log "restic backup"
 restic backup \
-  "$DATA_DIR" "$APPS_DIR" "$ROOT/.env" "$ROOT"/stacks/*/.env \
+  "$DATA_DIR" "$APPS_DIR" "$ROOT/.env" "$ROOT"/stacks/*/*/.env \
   --exclude "$DATA_DIR/sonarqube/db" \
   --exclude "$DATA_DIR/sonarqube/data/es*" \
   --exclude "$DATA_DIR/sonarqube/logs" \
+  --exclude "$DATA_DIR/adguard/work" \
   --exclude "$DATA_DIR/jenkins/caches" \
   --exclude "$DATA_DIR/jenkins/war"
 

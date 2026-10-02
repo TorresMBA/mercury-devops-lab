@@ -1,6 +1,6 @@
 // Canal manual: toma el compilado copiado por SFTP/Samba a inbox/<APP>, lo empaqueta
 // con el Dockerfile plantilla del runtime y lo despliega igual que el canal CI.
-// Los parámetros APP, RUNTIME y TARGET_ENV se definen en stacks/jenkins/casc/jenkins.yaml.
+// Los parámetros APP, RUNTIME y TARGET_ENV se definen en stacks/devops/jenkins/casc/jenkins.yaml.
 pipeline {
   agent { label 'base' }
 

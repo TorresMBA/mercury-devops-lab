@@ -32,7 +32,7 @@ services:
     volumes:
       - ${DATA_DIR}/jenkins:/var/jenkins_home
       - ./casc:/usr/share/jenkins/casc:ro
-      - ../../pipelines:/usr/share/jenkins/pipelines:ro
+      - ../../../pipelines:/usr/share/jenkins/pipelines:ro
     networks:
       - net-tools
       - agents

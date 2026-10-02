@@ -2,5 +2,5 @@
 .env
 !.env.example
 
-# Dashboards descargados por stacks/observability/grafana/fetch-dashboards.sh
-stacks/observability/grafana/dashboards/community-*.json
+# Dashboards descargados por stacks/monitoring/grafana/fetch-dashboards.sh
+stacks/monitoring/grafana/dashboards/community-*.json

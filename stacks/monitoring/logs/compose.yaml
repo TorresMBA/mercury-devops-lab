@@ -1,4 +1,6 @@
-# Logs. Incluido desde compose.yaml.
+# Logs: Alloy los recoge de todos los contenedores y Loki los guarda.
+name: logs
+
 services:
   loki:
     image: grafana/loki:${LOKI_VERSION}
@@ -9,7 +11,7 @@ services:
       - ./loki/config.yaml:/etc/loki/config.yaml:ro
       - ${HDD_DIR}/loki:/loki
     networks:
-      - obs
+      - net-obs
     mem_limit: 512m
     security_opt:
       - no-new-privileges:true
@@ -31,10 +33,10 @@ services:
     depends_on:
       - loki
     networks:
-      - obs
+      - net-obs
     mem_limit: 256m
 
 networks:
-  obs:
-    name: mercury-obs
-    internal: true
+  # Red privada del grupo monitoring (host/04-networks.sh)
+  net-obs:
+    external: true

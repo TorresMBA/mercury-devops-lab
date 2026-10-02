@@ -17,12 +17,7 @@ apt-get update
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 log "daemon.json"
-target=/etc/docker/daemon.json
-if [[ -f "$target" ]] && ! cmp -s "$HOST_DIR/files/daemon.json" "$target"; then
-  cp "$target" "$target.bak.$(date +%Y%m%d%H%M%S)"
-  echo "Copia del daemon.json anterior guardada junto al original"
-fi
-install -m 0644 "$HOST_DIR/files/daemon.json" "$target"
+install_daemon_json || echo "daemon.json sin cambios"
 systemctl enable docker >/dev/null
 systemctl restart docker
 

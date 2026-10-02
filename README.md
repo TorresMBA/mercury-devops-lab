@@ -1,43 +1,55 @@
 # Mercury Server
 
-Infraestructura como código de un servidor doméstico de CI/CD sobre Docker: Jenkins con agentes efímeros, SonarQube, escáneres de seguridad, registry privado, un canal de despliegue manual y observabilidad. Pensado para una máquina modesta (i7 de 3ª generación, 12 GB de RAM, SSD + HDD) con Ubuntu Server.
+Infraestructura como código de un servidor doméstico de CI/CD sobre Docker: Jenkins con agentes efímeros, SonarQube, escáneres de seguridad, registry privado, un canal de despliegue manual, DNS interno y observabilidad. Pensado para una máquina modesta (i7 de 3ª generación, 12 GB de RAM, SSD + HDD) con Ubuntu Server.
 
 ## Mapa
 
 ```
- Internet ── Cloudflare ──(túnel saliente)── cloudflared ─┐
-                                                          │
- LAN ── :80/:443 ── Nginx Proxy Manager ──┬── net-tools ──┼── jenkins, sonarqube, grafana, registry, portainer
-                                          ├── net-apps-dev│── apps dev
-                                          └── net-apps-prod── apps prod  ◄── cloudflared (solo aquí)
+                      tudominio.com
+              ┌────────────┴────────────┐
+           Público                   Interno
+        Cloudflare DNS            AdGuard Home (DNS de la LAN)
+              │                         │
+      app.tudominio.com        *.int.tudominio.com → IP LAN
+              │                         │
+       Cloudflare Tunnel       Nginx Proxy Manager (:443)
+              │                         │
+              │            ┌── net-tools ──── jenkins, sonarqube, registry, grafana, adguard, portainer
+              │            ├── net-apps-dev ─ apps dev
+              └────────────┴── net-apps-prod  apps prod  ◄── único destino del túnel
 ```
 
-- Las herramientas solo se ven en la LAN, con HTTPS real (`*.int.<dominio>`).
-- Lo público sale únicamente por el túnel de Cloudflare, que solo alcanza la red de apps de producción.
-- Solo Nginx Proxy Manager y Samba publican puertos. El resto se alcanza por nombre de contenedor dentro de las redes de Docker.
+- Las herramientas solo se ven en la LAN, con HTTPS real (`*.int.<dominio>`). AdGuard Home resuelve esos nombres; no existen en el DNS público.
+- Lo público sale únicamente por el túnel de Cloudflare, que apunta directo a la app y solo alcanza la red de apps de producción.
+- Solo Nginx Proxy Manager, AdGuard (DNS) y Samba publican puertos, ligados a la LAN. El resto se alcanza por nombre de contenedor dentro de las redes de Docker.
 
 ## Estructura
 
 | Ruta | Contenido |
 |---|---|
-| `host/` | Scripts numerados que preparan Ubuntu: firewall, SSH, discos, Docker, redes, backups |
-| `stacks/` | Un directorio por stack, cada uno con su `compose.yaml` y su `.env.example` |
+| `host/` | Scripts numerados que preparan Ubuntu: firewall, SSH, discos, Docker, redes, backups, DNS |
+| `stacks/<grupo>/<stack>/` | Un directorio por stack, cada uno con su `compose.yaml` y su `.env.example` |
 | `apps/_templates/` | Por runtime: `Dockerfile` de empaquetado, `Jenkinsfile` de ejemplo y compose de modo rápido |
 | `pipelines/` | `mercury-ci` (pasos compartidos de los pipelines) y el job del canal manual |
-| `mercury` | Script para operar los stacks: `./mercury help` |
+| `mercury` | Script para operar los stacks: `./mercury help`, `./mercury list` |
 | `docs/` | Guías paso a paso |
 
-| Stack | Servicios | RAM límite |
-|---|---|---|
-| `edge` | Nginx Proxy Manager, cloudflared | 0,5 GB |
-| `registry` | Registry + interfaz web | 0,3 GB |
-| `jenkins` | Controller + socket-proxy (los agentes se crean por build) | 1,6 GB |
-| `sonarqube` | SonarQube Community + PostgreSQL | 3,5 GB |
-| `observability` | Prometheus, node-exporter, cAdvisor, Loki, Alloy, Grafana | 1,9 GB |
-| `files` | Samba (canal manual) | 0,1 GB |
-| `management` | Portainer (opcional) | 0,3 GB |
+| Grupo | Stack | Servicios | RAM límite |
+|---|---|---|---|
+| `core` | `dns` | AdGuard Home | 0,3 GB |
+| | `edge` | Nginx Proxy Manager, cloudflared | 0,5 GB |
+| | `management` | Portainer (opcional) | 0,3 GB |
+| `devops` | `registry` | Registry + interfaz web | 0,3 GB |
+| | `jenkins` | Controller + socket-proxy (los agentes se crean por build) | 1,6 GB |
+| | `sonarqube` | SonarQube Community + PostgreSQL | 3,5 GB |
+| `monitoring` | `metrics` | Prometheus, node-exporter, cAdvisor | 0,8 GB |
+| | `logs` | Loki, Alloy | 0,8 GB |
+| | `grafana` | Grafana | 0,4 GB |
+| `storage` | `files` | Samba (canal manual) | 0,1 GB |
 
-Los límites suman unos 8 GB; el uso real en reposo es menor. Queda margen para dos agentes de build (hasta 2 GB cada uno) y las apps desplegadas.
+Los límites suman unos 8,5 GB; el uso real en reposo es menor. Queda margen para dos agentes de build (hasta 2 GB cada uno) y las apps desplegadas.
+
+Los comandos de `mercury` aceptan un stack, un grupo o `all`: `./mercury up jenkins`, `./mercury up monitoring`, `./mercury ps all`.
 
 ## Puesta en marcha
 
@@ -48,8 +60,8 @@ Los límites suman unos 8 GB; el uso real en reposo es menor. Queda margen para 
 
 ## Convenciones
 
-- **Un stack, un compose.** Cada stack se levanta y se detiene por separado. Las redes compartidas (`net-tools`, `net-apps-dev`, `net-apps-prod`) se crean una vez y se declaran `external`.
-- **Configuración en git, secretos y datos fuera.** Los `.env` no se versionan. Los datos viven en `/srv/mercury` (SSD) y `/mnt/hdd/mercury` (HDD).
+- **Un stack, un compose.** Cada stack se levanta y se detiene por separado. Las redes compartidas (`net-tools`, `net-apps-dev`, `net-apps-prod`, `net-obs`) se crean una vez y se declaran `external`.
+- **Configuración en git, secretos y datos fuera.** Los `.env` no se versionan y los valores reales nunca van en un `.env.example`. Los datos viven en `/srv/mercury` (SSD) y `/mnt/hdd/mercury` (HDD).
 - **Versiones fijadas.** Las imágenes de terceros llevan versión exacta en el `.env` de su stack; actualizar es cambiar ese número.
 - **Toda app escucha en 8080** y su contenedor se llama `<app>-<ambiente>`. En Nginx Proxy Manager el destino siempre es `http://<app>-<dev|prod>:8080`.
 - **Todo servicio tiene límite de memoria.** Con 12 GB, un contenedor sin límite puede tumbar el servidor.

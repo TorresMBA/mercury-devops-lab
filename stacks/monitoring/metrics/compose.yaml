@@ -1,4 +1,6 @@
-# Métricas. Incluido desde compose.yaml.
+# Métricas: Prometheus las recoge y guarda; node-exporter y cAdvisor las exponen.
+name: metrics
+
 services:
   prometheus:
     image: prom/prometheus:${PROMETHEUS_VERSION}
@@ -17,7 +19,7 @@ services:
       - host.docker.internal:host-gateway
     networks:
       - net-tools # alcanza a Jenkins y al host
-      - obs
+      - net-obs
     mem_limit: 512m
     security_opt:
       - no-new-privileges:true
@@ -57,12 +59,12 @@ services:
       - /var/lib/docker:/var/lib/docker:ro
       - /dev/disk:/dev/disk:ro
     networks:
-      - obs
+      - net-obs
     mem_limit: 192m
 
 networks:
   net-tools:
     external: true
-  obs:
-    name: mercury-obs
-    internal: true
+  # Red privada del grupo monitoring (host/04-networks.sh)
+  net-obs:
+    external: true

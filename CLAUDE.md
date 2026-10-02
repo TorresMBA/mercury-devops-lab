@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Qué es este repo
 
-Infraestructura como código de un servidor doméstico de CI/CD sobre Docker Compose (Jenkins con agentes efímeros, SonarQube, registry, canal de despliegue manual, observabilidad). No hay código de aplicación: son composes, scripts bash, configuración y plantillas. Documentación, comentarios y mensajes van en español.
+Infraestructura como código de un servidor doméstico de CI/CD sobre Docker Compose (Jenkins con agentes efímeros, SonarQube, registry, canal de despliegue manual, DNS interno con AdGuard Home, observabilidad). No hay código de aplicación: son composes, scripts bash, configuración y plantillas. Documentación, comentarios y mensajes van en español.
 
 El repo se edita en Windows y se ejecuta en un Ubuntu Server (clonado en `/opt/mercury`). El servidor tiene 12 GB de RAM: todo servicio nuevo lleva `mem_limit` y hay que contar su coste (tabla en `README.md`).
 
@@ -14,14 +14,16 @@ No hay tests ni Docker en la máquina de desarrollo. Antes de dar un cambio por 
 
 ```bash
 bash -n mercury pipelines/lib/mercury-ci host/*.sh        # sintaxis de scripts
-npx --yes js-yaml stacks/<stack>/compose.yaml             # sintaxis YAML (un archivo)
+npx --yes js-yaml stacks/<grupo>/<stack>/compose.yaml     # sintaxis YAML (un archivo)
 ```
 
 La validación real solo es posible en el servidor:
 
 ```bash
-./mercury config <stack>     # compose resuelto: detecta variables sin definir e include/redes inválidos
-./mercury up <stack>         # stacks: edge registry jenkins sonarqube observability files management | all
+./mercury list               # grupos y stacks, y cuáles tienen .env
+./mercury config <destino>   # compose resuelto: detecta variables sin definir y redes inválidas
+./mercury up <destino>       # destino = stack (jenkins), grupo (devops) o all
+./mercury check-dns [nombre] # diagnostica la cadena AdGuard → servidor → contenedores → HTTPS
 ./mercury logs <stack> [servicio]
 ```
 
@@ -29,31 +31,45 @@ Tras cambiar ciertas piezas hay que reconstruir, no basta con `up`:
 
 | Cambio en | Comando |
 |---|---|
-| `stacks/jenkins/plugins.txt`, `JENKINS_VERSION` | `./mercury build jenkins && ./mercury up jenkins` |
-| `stacks/jenkins/casc/jenkins.yaml` | `./mercury up jenkins` |
-| `pipelines/lib/mercury-ci`, `apps/_templates/**`, `stacks/jenkins/agents/**` | `./mercury agents` |
+| `stacks/devops/jenkins/plugins.txt`, `JENKINS_VERSION` | `./mercury build jenkins && ./mercury up jenkins` |
+| `stacks/devops/jenkins/casc/jenkins.yaml` | `./mercury up jenkins` |
+| `pipelines/lib/mercury-ci`, `apps/_templates/**`, `stacks/devops/jenkins/agents/**` | `./mercury agents` |
+| `stacks/core/dns/AdGuardHome.yaml.tmpl` | Solo afecta a instalaciones nuevas: `dns-init` no sobrescribe una configuración existente |
 
-Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular la configuración JCasC de Jenkins, los permisos de `socket-proxy` y el `include` de `stacks/observability`.
+Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular los permisos de `socket-proxy` para builds, el arranque de AdGuard desde la plantilla y `host/06-dns.sh`. En el servidor ya funcionan `edge`, `registry` y `jenkins`.
 
 ## Arquitectura
 
 ### Redes: el aislamiento es por red, no por firewall
 
-Tres redes externas creadas por `host/04-networks.sh` y declaradas `external` en cada compose:
+Los stacks viven en `stacks/<grupo>/<stack>` (`core`, `devops`, `monitoring`, `storage`). El grupo solo organiza: cada stack es un proyecto compose independiente cuyo `name:` es el nombre corto, único entre grupos. La lista ordenada `STACKS` de `mercury` es la fuente de verdad de qué existe y en qué orden arranca.
+
+Redes externas creadas por `host/04-networks.sh` y declaradas `external` en cada compose:
 
 - `net-tools`: herramientas internas. Nginx Proxy Manager (NPM) las enruta por nombre de contenedor.
-- `net-apps-dev` / `net-apps-prod`: apps desplegadas. `cloudflared` solo está en `net-apps-prod`, así que internet nunca alcanza las herramientas.
+- `net-apps-dev` / `net-apps-prod`: apps desplegadas. `cloudflared` solo está en `net-apps-prod` y apunta directo a la app (no pasa por NPM), así que internet nunca alcanza las herramientas. Es una decisión del usuario: no enrutar el túnel por NPM.
+- `net-obs`: interna, compartida por los tres stacks de `monitoring`.
 
 Reglas que se derivan y que hay que respetar al añadir servicios:
 
-- Solo NPM (80/443, admin :81 en la IP LAN) y Samba (:445 en la IP LAN) publican puertos. Docker salta UFW para los puertos publicados, por eso no se usa `ports:` en nada más.
-- Las bases de datos van en una red propia `internal: true` del stack (modelo: `stacks/sonarqube`).
+- Solo NPM (80/443, admin :81 en la IP LAN), AdGuard (:53 en la IP LAN) y Samba (:445 en la IP LAN) publican puertos. Docker salta UFW para los puertos publicados, por eso no se usa `ports:` en nada más.
+- Las bases de datos van en una red propia `internal: true` del stack (modelo: `stacks/devops/sonarqube`).
 - La red `mercury-jenkins` (controller, `socket-proxy`, agentes) da acceso casi root al Docker del host: no se comparte con ningún otro servicio.
 - Todas las redes salen de `10.200.0.0/16` (`host/files/daemon.json`); la regla UFW que deja a Prometheus leer node-exporter y el daemon depende de ese rango (`DOCKER_POOL` en `host/_common.sh`).
 
+### DNS interno
+
+AdGuard Home (`stacks/core/dns`) reescribe `*.${INT_DOMAIN}` hacia `LAN_IP`; esos nombres no existen en el DNS público. Cloudflare solo interviene en el túnel y en el desafío DNS-01 del certificado wildcard de NPM. Tres consumidores, cada uno configurado en un sitio distinto:
+
+- **Host**: `host/06-dns.sh` escribe un drop-in de systemd-resolved con dominio de enrutamiento (`~INT_DOMAIN`), de modo que solo los nombres internos van a AdGuard y el host conserva internet si AdGuard cae.
+- **Contenedores**: clave `dns` en `/etc/docker/daemon.json`, generada por `install_daemon_json` en `host/_common.sh` (la comparten `03-docker.sh` y `06-dns.sh`; `host/files/daemon.json` es solo la base). Los contenedores la toman al crearse.
+- **Equipos de la LAN**: configuración manual del usuario (adaptador o DHCP del router).
+
+La configuración inicial de AdGuard sale de `AdGuardHome.yaml.tmpl` vía `./mercury dns-init`; después AdGuard reescribe su propio YAML, así que el repo no es la fuente de verdad de su estado. `schema_version` de la plantilla debe corresponder a la versión fijada en `.env.example`.
+
 ### Configuración en dos niveles
 
-`mercury` invoca compose con `--env-file .env --env-file stacks/<stack>/.env`: el `.env` raíz tiene lo común (dominio, IP, rutas) y el del stack las versiones de imagen y los secretos. Solo se versionan los `.env.example`. Los scripts de `host/` leen el `.env` raíz a través de `host/_common.sh`.
+`mercury` invoca compose con `--env-file .env --env-file stacks/<grupo>/<stack>/.env`: el `.env` raíz tiene lo común (dominio, IP, rutas) y el del stack las versiones de imagen y los secretos. Solo se versionan los `.env.example`. Los scripts de `host/` leen el `.env` raíz a través de `host/_common.sh`.
 
 Datos fuera del repo: `DATA_DIR` (`/srv/mercury/data`, SSD) y `HDD_DIR` (`/mnt/hdd/mercury`). Los directorios y sus dueños (UID de cada imagen) se crean en `host/02-disks.sh`; un servicio nuevo con bind-mount necesita su línea ahí.
 
@@ -79,14 +95,15 @@ Canal manual: compilado copiado a INBOX_DIR/<app> → job manual-release ──�
 - Imágenes: `${REGISTRY_HOST}/apps/<app>:<tag>` y `${REGISTRY_HOST}/agents/<lenguaje>:latest`.
 - Dominios internos de un solo nivel bajo `*.int.<dominio>` (el wildcard no cubre más): `<app>-dev.int.<dominio>`, no `<app>.dev.int.<dominio>`.
 - UID/GID 2000 (`deployer`) para lo que se sube por SFTP y Samba; UID 1000 (usuario `jenkins` de los agentes) para leer `APPS_DIR/<env>/<app>.env`.
-- Las etiquetas de agente en los Jenkinsfile (`base`, `dotnet`, `maven`, `python`, `node`) deben existir como plantilla en `casc/jenkins.yaml`, como carpeta en `stacks/jenkins/agents/` y en la lista `AGENTS` de `mercury`.
+- Las etiquetas de agente en los Jenkinsfile (`base`, `dotnet`, `maven`, `python`, `node`) deben existir como plantilla en `casc/jenkins.yaml`, como carpeta en `stacks/devops/jenkins/agents/` y en la lista `AGENTS` de `mercury`.
 
 ### Convenciones de los compose
 
-`name:` explícito; versión de imagen en variable del `.env` del stack (nunca `latest` para imágenes de terceros); `restart: unless-stopped`; `mem_limit`; `no-new-privileges` salvo donde rompe (Samba, cAdvisor). Un stack nuevo se añade también a la lista `STACKS` de `mercury`. La receta completa está en `docs/04-operacion-y-futuro.md`.
+`name:` explícito; versión de imagen en variable del `.env` del stack (nunca `latest` para imágenes de terceros); `restart: unless-stopped`; `mem_limit`; `no-new-privileges` salvo donde rompe o no está probado (Samba, cAdvisor, AdGuard). Un stack nuevo se añade también a la lista `STACKS` de `mercury` como `<grupo>/<stack>`, y sus directorios de datos a `host/02-disks.sh` (que solo crea lo que falta, nunca cambia dueños de lo existente). La receta completa está en `docs/04-operacion-y-futuro.md`.
 
 ## Entorno de edición
 
 - `.gitattributes` fuerza LF: los scripts se ejecutan en Linux. No introducir CRLF.
-- El bit de ejecución no se conserva desde Windows; los scripts se invocan con `bash <script>` donde importa (systemd, `mercury backup`) y `docs/01-host.md` indica el `chmod` tras clonar.
+- El bit de ejecución no se conserva desde Windows; los scripts se invocan con `bash <script>` donde importa (systemd, `mercury backup`) y `docs/01-host.md` indica el `chmod` tras clonar. Los scripts añadidos después del clonado inicial se documentan siempre como `bash host/<script>`.
+- Mover o renombrar un stack deja atrás su `.env` no versionado en el servidor: hay que acompañarlo de un paso de migración (precedente: `host/migrate-layout.sh`).
 - En los compose, `$` literal dentro de `command:` se escribe `$$`. En `casc/jenkins.yaml`, `${VAR}` lo sustituye JCasC con variables de entorno del controller.

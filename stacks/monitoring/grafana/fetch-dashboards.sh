@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Descarga dashboards de la comunidad (grafana.com) a dashboards/ y los enlaza
 # con la fuente de datos "prometheus". Grafana los carga solo en menos de un minuto.
-# Uso: bash stacks/observability/grafana/fetch-dashboards.sh
+# Uso: bash stacks/monitoring/grafana/fetch-dashboards.sh
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dashboards"
