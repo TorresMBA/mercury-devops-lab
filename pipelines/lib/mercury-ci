@@ -173,7 +173,8 @@ case "$step" in
     echo "Dockerfile: $dockerfile ($origin)"
     echo "Contexto:   $context"
     echo "Runtime:    $runtime $shown"
-    docker build --pull -t "$ref" -f "$dockerfile" "${build_args[@]}" "$context"
+    echo "Imagen:     $ref"
+    docker build --pull --load -t "$ref" -f "$dockerfile" "${build_args[@]}" "$context"
     docker push "$ref"
     echo "Imagen publicada: $ref"
     ;;
