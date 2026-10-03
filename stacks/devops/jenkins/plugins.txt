@@ -15,6 +15,7 @@ pipeline-utility-steps:latest
 pipeline-build-step:latest
 pipeline-input-step:latest
 pipeline-milestone-step:latest
+lockable-resources:latest
 pipeline-graph-view:latest
 
 # -----------------------------------------------

@@ -4,7 +4,8 @@ pipeline {
 
   options {
     timestamps()
-    disableConcurrentBuilds()
+    // Un push nuevo cancela el build anterior de este job, aunque esté esperando en "Aprobar prod"
+    disableConcurrentBuilds(abortPrevious: true)
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
@@ -15,6 +16,8 @@ pipeline {
 
   stages {
     stage('CI') {
+      // 'python' es la versión por defecto. Para fijar otra: 'python-3.11', 'python-3.12' o 'python-3.13'.
+      // La imagen de la app se empaqueta con la misma versión que el agente.
       agent { label 'python' }
       environment {
         REGISTRY = credentials('registry')

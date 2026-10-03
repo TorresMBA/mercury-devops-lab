@@ -19,13 +19,23 @@ services:
       - credentials.env
     environment:
       TZ: ${TZ}
-      JAVA_OPTS: -Xmx768m -Djenkins.install.runSetupWizard=false
+      # NodeProvisioner: crear el agente en cuanto hay un build en cola, sin esperar a
+      # que la carga media lo justifique (comportamiento por defecto de Jenkins)
+      JAVA_OPTS: >-
+        -Xmx768m
+        -Djenkins.install.runSetupWizard=false
+        -Dhudson.slaves.NodeProvisioner.initialDelay=0
+        -Dhudson.slaves.NodeProvisioner.MARGIN=50
+        -Dhudson.slaves.NodeProvisioner.MARGIN0=0.85
       CASC_JENKINS_CONFIG: /usr/share/jenkins/casc
+      # casc/jenkins.yaml reutiliza bloques con anclas YAML; el límite por defecto es 50 alias
+      CASC_YAML_MAX_ALIASES: "200"
       # Variables que los YAML de casc/ sustituyen con ${...}
       INT_DOMAIN: ${INT_DOMAIN}
       REGISTRY_HOST: ${REGISTRY_HOST}
       INBOX_DIR: ${INBOX_DIR}
       APPS_DIR: ${APPS_DIR}
+      JENKINS_MAX_AGENTS: ${JENKINS_MAX_AGENTS:-2}
       JENKINS_ADMIN_ID: ${JENKINS_ADMIN_ID}
       JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD}
       REGISTRY_USER: ${REGISTRY_USER}

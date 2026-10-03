@@ -11,7 +11,9 @@
 | Actualizar Jenkins o sus plugins | Cambia `JENKINS_VERSION` o `plugins.txt`, luego `./mercury build jenkins && ./mercury up jenkins` |
 | Cambiar la configuración de Jenkins (carpetas, agentes, jobs por código) | Edita `stacks/devops/jenkins/casc/*.yaml`, luego `./mercury restart jenkins` (`up` no lo aplica si no cambió ningún `.env`) |
 | Añadir una cuenta de git a Jenkins | Variables en `stacks/devops/jenkins/credentials.env` y bloque en `casc/credentials.yaml`, luego `./mercury up jenkins` ([detalle](03-despliegues.md#credenciales-de-git)) |
-| Cambiar pasos de pipeline o plantillas | Edita `pipelines/lib/mercury-ci` o `apps/_templates/`, luego `./mercury agents` |
+| Cambiar pasos de pipeline o plantillas | Edita `pipelines/lib/mercury-ci` o `apps/_templates/`, luego `./mercury agents` (reconstruye la base y los agentes ya publicados) |
+| Publicar un agente para una versión nueva | `./mercury agents <agente>:<versión>`; el catálogo se ve con `./mercury agents list` |
+| Volver a una imagen de agente anterior | `./mercury agents rollback <agente>:<versión> <commit>` |
 | Limpiar imágenes viejas del host | `docker image prune -a --filter "until=168h"` |
 | Liberar espacio en el registry | Borra etiquetas desde la interfaz web y ejecuta `./mercury registry-gc` |
 | Backup manual | `./mercury backup` |
@@ -46,6 +48,42 @@ nano stacks/devops/jenkins/credentials.env  # pasa aquí los valores de GIT_USER
 ```
 
 La credencial `git` desaparece y pasa a llamarse `github-mercury`: edita una vez cada job que la usara y elige la nueva. `GIT_USER` y `GIT_TOKEN` ya no se leen; bórralas del `.env`.
+
+### De agentes `:latest` a agentes versionados
+
+Si tus agentes se publicaron como `agents/<lenguaje>:latest`, tras `git pull` publica las imágenes con las etiquetas nuevas **antes** de reiniciar Jenkins; si no, los jobs existentes quedarían esperando agente:
+
+```bash
+cd /opt/mercury && git pull
+./mercury build jenkins                          # plugin nuevo (lockable-resources)
+./mercury agents base dotnet maven node python   # versiones por defecto, con las etiquetas nuevas
+./mercury up jenkins                             # recrea el contenedor con la configuración nueva
+./mercury agents list
+```
+
+Los jobs que usan `agent { label 'dotnet' }` siguen funcionando sin cambios: la etiqueta sin versión apunta ahora a la versión por defecto. En los Jenkinsfile que ya copiaste a tus repos, cambia `disableConcurrentBuilds()` por `disableConcurrentBuilds(abortPrevious: true)` para que un build esperando aprobación no bloquee el siguiente push. Las imágenes `:latest` antiguas se pueden borrar desde la interfaz del registry.
+
+## Agentes de Jenkins
+
+Cada imagen de agente se publica con dos etiquetas: la de versión (`agents/dotnet:8.0`), que es la que usa Jenkins y se mueve en cada construcción, y una fija con el commit de este repo (`agents/dotnet:8.0-a1b2c3d`). La fija permite saber qué contiene cada imagen y volver atrás.
+
+**Volver atrás.** Si un agente reconstruido rompe los builds:
+
+```bash
+./mercury agents rollback dotnet:8.0 a1b2c3d     # la etiqueta de versión vuelve a esa imagen
+```
+
+Los commits disponibles se ven en la interfaz del registry (`agents/dotnet`). Un sufijo `-dirty` indica que la imagen se construyó con cambios sin confirmar en el repo.
+
+**Añadir una versión al catálogo** (por ejemplo .NET 11):
+
+1. `mercury`: añade `dotnet:11.0` a la lista `AGENTS` (y cambia `AGENT_DEFAULT` si pasa a ser la de por defecto).
+2. `stacks/devops/jenkins/casc/jenkins.yaml`: copia una plantilla del mismo agente y cambia `name`, `labelString` e `image`. Si cambia la de por defecto, mueve la etiqueta sin versión a la nueva. Añade la versión al parámetro `RUNTIME_VERSION` de `manual-release`.
+3. `./mercury restart jenkins` y `./mercury agents dotnet:11.0`.
+
+La versión debe existir como etiqueta en la imagen de origen del agente (`dotnet/sdk`, `maven`, `node`, `python`) y en la de ejecución de la app.
+
+**Limpieza.** Cada reconstrucción deja una etiqueta fija más. Borra las antiguas desde la interfaz del registry y ejecuta `./mercury registry-gc`.
 
 ## Backups
 

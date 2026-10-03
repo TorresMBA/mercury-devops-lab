@@ -51,6 +51,8 @@ Los límites suman unos 8,5 GB; el uso real en reposo es menor. Queda margen par
 
 Los comandos de `mercury` aceptan un stack, un grupo o `all`: `./mercury up jenkins`, `./mercury up monitoring`, `./mercury ps all`.
 
+Los agentes de build tienen un catálogo de versiones (.NET 8/9/10, Java 8 a 25, Node 20/22/24, Python 3.11 a 3.13) y se publican bajo demanda: `./mercury agents list`, `./mercury agents dotnet:8.0`. En el Jenkinsfile se elige con `agent { label 'dotnet-8.0' }`.
+
 ## Puesta en marcha
 
 1. [docs/01-host.md](docs/01-host.md): instalar Ubuntu Server y preparar el host.

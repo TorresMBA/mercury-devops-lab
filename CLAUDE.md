@@ -34,10 +34,11 @@ Tras cambiar ciertas piezas hay que reconstruir, no basta con `up`:
 | `stacks/devops/jenkins/plugins.txt`, `JENKINS_VERSION` | `./mercury build jenkins && ./mercury up jenkins` |
 | `stacks/devops/jenkins/casc/*.yaml` | `./mercury restart jenkins` (el YAML va montado: `up` no recrea el contenedor si no cambió el compose ni un `.env`) |
 | `stacks/devops/jenkins/.env`, `stacks/devops/jenkins/credentials.env` | `./mercury up jenkins` |
-| `pipelines/lib/mercury-ci`, `apps/_templates/**`, `stacks/devops/jenkins/agents/**` | `./mercury agents` |
+| `pipelines/lib/mercury-ci`, `apps/_templates/**`, `stacks/devops/jenkins/agents/base` | `./mercury agents` (sin filtro: reconstruye la base y los agentes ya publicados, que heredan de ella) |
+| `stacks/devops/jenkins/agents/<agente>`, lista `AGENTS` de `mercury` | `./mercury agents <agente>[:<versión>]` (y `./mercury restart jenkins` si hay plantilla nueva) |
 | `stacks/core/dns/AdGuardHome.yaml.tmpl` | Solo afecta a instalaciones nuevas: `dns-init` no sobrescribe una configuración existente |
 
-Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular los permisos de `socket-proxy` para builds, el arranque de AdGuard desde la plantilla, `host/06-dns.sh`, las credenciales por dominio de Jenkins (`casc/credentials.yaml` con `credentials.env`), las carpetas de Jenkins por job-dsl y el runtime `spa`. En el servidor ya funcionan `edge`, `registry` y `jenkins`.
+Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular los permisos de `socket-proxy` para builds, el arranque de AdGuard desde la plantilla, `host/06-dns.sh`, las credenciales por dominio de Jenkins (`casc/credentials.yaml` con `credentials.env`), las carpetas de Jenkins por job-dsl, el runtime `spa` y los agentes versionados (anclas `x-` y `<<:` en `casc/jenkins.yaml`, `javaExe` del agente, `RUNTIME_VERSION` en `mercury-ci package`, el plugin `lockable-resources` en `manual-release`, `disableConcurrentBuilds(abortPrevious: true)`). En el servidor ya funcionan `edge`, `registry` y `jenkins`.
 
 ## Arquitectura
 
@@ -97,10 +98,14 @@ Canal manual: compilado copiado a INBOX_DIR/<app> → job manual-release ──�
 
 - Toda app escucha en **8080** y su contenedor se llama **`<app>-<dev|prod>`**; NPM y el túnel apuntan a `http://<app>-<env>:8080`. El modo rápido (`compose.quick.yaml`) reutiliza el nombre `<app>-dev`.
 - Nombres de app: `^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$`, validado igual en `mercury` y en `mercury-ci`.
-- Imágenes: `${REGISTRY_HOST}/apps/<app>:<tag>` y `${REGISTRY_HOST}/agents/<lenguaje>:latest`.
+- Imágenes: `${REGISTRY_HOST}/apps/<app>:<tag>`, `${REGISTRY_HOST}/agents/<agente>:<versión>` (móvil, la que usa Jenkins, más `<versión>-<commit>`, fija) y `${REGISTRY_HOST}/agents/base:current`. Ninguna usa `latest`.
 - Dominios internos de un solo nivel bajo `*.int.<dominio>` (el wildcard no cubre más): `<app>-dev.int.<dominio>`, no `<app>.dev.int.<dominio>`.
 - UID/GID 2000 (`deployer`) para lo que se sube por SFTP y Samba; UID 1000 (usuario `jenkins` de los agentes) para leer `APPS_DIR/<env>/<app>.env`.
-- Las etiquetas de agente en los Jenkinsfile (`base`, `dotnet`, `maven`, `python`, `node`) deben existir como plantilla en `casc/jenkins.yaml`, como carpeta en `stacks/devops/jenkins/agents/` y en la lista `AGENTS` de `mercury`.
+- Agentes versionados: `AGENTS` en `mercury` es un catálogo `<agente>:<versión>`, no la lista de lo construido (solo se publica lo que se pide). Cada entrada necesita su carpeta `stacks/devops/jenkins/agents/<agente>` (con `ARG VERSION`) y una plantilla en `casc/jenkins.yaml` con etiqueta `<agente>-<versión>` (`dotnet-8.0`, `maven-17`); la versión por defecto (`AGENT_DEFAULT`) lleva además la etiqueta sin versión, que es la que usan las plantillas Jenkinsfile. Una versión nueva se añade también al `choiceParam` `RUNTIME_VERSION` de `manual-release`.
+- La versión del runtime sigue al agente: cada imagen de agente exporta `RUNTIME_VERSION` y `mercury-ci package` la traduce al `ARG` del Dockerfile del runtime (`DOTNET_VERSION`, `JAVA_VERSION`, `NODE_VERSION`, `PYTHON_VERSION`). En el canal manual llega como parámetro del job (`default` = la de la plantilla) y en `./mercury quick` como tercer argumento.
+- Dockerfile de empaquetado, de mayor a menor prioridad en `mercury-ci package`: `MERCURY_DOCKERFILE`, `<dir>/Dockerfile`, `./Dockerfile` del repo de la app, plantilla del runtime. Cualquiera debe escuchar en 8080.
+- El proceso del agente de Jenkins arranca con el Java de la imagen base (`javaExe` en el ancla `x-agent`), no con el JDK del `PATH`, que en `maven-8`/`maven-11` es demasiado antiguo para él.
+- Concurrencia: `containerCap` sale de `JENKINS_MAX_AGENTS`; las plantillas Jenkinsfile usan `disableConcurrentBuilds(abortPrevious: true)`; `manual-release` no bloquea entre apps y serializa por `lock("deploy-<app>-<env>")`. Los escáneres que lanza `mercury-ci` llevan su propio `--memory` porque corren fuera del límite del agente.
 
 ### Convenciones de los compose
 

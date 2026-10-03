@@ -1,5 +1,6 @@
 # Agente base: cliente Docker + pasos de pipeline (mercury-ci) + plantillas de apps.
-# Se construye con la raíz del repo como contexto: ./mercury agents
+# Se construye con la raíz del repo como contexto: ./mercury agents base
+# Los agentes de cada lenguaje parten de esta imagen (agents/base:current).
 ARG AGENT_VERSION
 FROM jenkins/agent:${AGENT_VERSION}
 

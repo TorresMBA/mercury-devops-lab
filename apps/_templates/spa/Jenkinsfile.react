@@ -4,7 +4,8 @@ pipeline {
 
   options {
     timestamps()
-    disableConcurrentBuilds()
+    // Un push nuevo cancela el build anterior de este job, aunque esté esperando en "Aprobar prod"
+    disableConcurrentBuilds(abortPrevious: true)
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
@@ -17,6 +18,8 @@ pipeline {
 
   stages {
     stage('CI') {
+      // 'node' es la versión por defecto. Para fijar otra: 'node-20', 'node-22' o 'node-24'.
+      // La imagen de la app se empaqueta con la misma versión que el agente.
       agent { label 'node' }
       environment {
         REGISTRY = credentials('registry')

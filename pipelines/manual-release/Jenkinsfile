@@ -1,12 +1,15 @@
 // Canal manual: toma el compilado copiado por SFTP/Samba a inbox/<APP>, lo empaqueta
-// con el Dockerfile plantilla del runtime y lo despliega igual que el canal CI.
-// Los parámetros APP, RUNTIME y TARGET_ENV se definen en stacks/devops/jenkins/casc/jenkins.yaml.
+// con el Dockerfile plantilla del runtime (o el que traiga el compilado) y lo despliega
+// igual que el canal CI.
+// Los parámetros APP, RUNTIME, RUNTIME_VERSION y TARGET_ENV se definen en
+// stacks/devops/jenkins/casc/jenkins.yaml.
 pipeline {
   agent { label 'base' }
 
+  // Sin disableConcurrentBuilds: se pueden publicar apps distintas a la vez.
+  // El lock de "Desplegar" evita dos despliegues simultáneos de la misma app y ambiente.
   options {
     timestamps()
-    disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
@@ -24,6 +27,7 @@ pipeline {
 
     stage('Empaquetar') {
       steps {
+        // mercury-ci package lee RUNTIME_VERSION del entorno ("default" = la de la plantilla)
         sh '''
           mercury-ci login
           mercury-ci package "$RUNTIME" "/inbox/$APP" "$APP" "$TAG"
@@ -39,7 +43,9 @@ pipeline {
 
     stage('Desplegar') {
       steps {
-        sh 'mercury-ci deploy "$APP" "$TARGET_ENV" "$TAG"'
+        lock("deploy-${params.APP}-${params.TARGET_ENV}") {
+          sh 'mercury-ci deploy "$APP" "$TARGET_ENV" "$TAG"'
+        }
       }
     }
   }

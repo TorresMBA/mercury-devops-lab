@@ -1,11 +1,11 @@
 # Modo rápido (dev): ejecuta el código copiado a inbox, sin construir imagen.
 # Copia el código a una carpeta escribible e instala dependencias en cada arranque.
-# Uso: ./mercury quick <app> node   (repetir tras copiar una versión nueva)
+# Uso: ./mercury quick <app> node [20|22|24]   (repetir tras copiar una versión nueva)
 name: ${APP}-dev
 
 services:
   app:
-    image: node:22-alpine
+    image: node:${RUNTIME_VERSION:-22}-alpine
     container_name: ${APP}-dev
     restart: unless-stopped
     working_dir: /app

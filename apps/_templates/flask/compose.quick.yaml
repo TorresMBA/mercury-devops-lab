@@ -1,11 +1,11 @@
 # Modo rápido (dev): ejecuta el código copiado a inbox, sin construir imagen.
 # Instala las dependencias en cada arranque, así que tarda más en levantar.
-# Uso: ./mercury quick <app> flask   (repetir tras copiar una versión nueva)
+# Uso: ./mercury quick <app> flask [3.11|3.12|3.13]   (repetir tras copiar una versión nueva)
 name: ${APP}-dev
 
 services:
   app:
-    image: python:3.12-slim
+    image: python:${RUNTIME_VERSION:-3.12}-slim
     container_name: ${APP}-dev
     restart: unless-stopped
     working_dir: /app

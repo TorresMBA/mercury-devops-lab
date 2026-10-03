@@ -4,6 +4,34 @@
 # Tras editar: ./mercury restart jenkins   (o Administrar Jenkins > Configuration as Code > Reload).
 # `up` no basta: si solo cambia este archivo, compose no recrea el contenedor.
 
+# Bloques comunes a todas las plantillas de agente. JCasC ignora las claves raíz que
+# empiezan por "x-"; cada plantilla los incorpora con "<<:" y añade solo lo que cambia.
+x-agent: &agent
+  instanceCapStr: "2"
+  remoteFs: "/home/jenkins/agent"
+  # La etiqueta de versión de la imagen es móvil: se comprueba en cada build
+  pullStrategy: PULL_ALWAYS
+  pullTimeout: 600
+  removeVolumes: true
+  connector:
+    attach:
+      user: "jenkins"
+      # Java de la imagen base, no el JDK del proyecto: con Java 8 u 11 en el PATH
+      # el proceso del agente no podría arrancar
+      javaExe: "/opt/java/openjdk/bin/java"
+  retentionStrategy:
+    idleMinutes: 1
+
+x-agent-base: &agent-base
+  pullCredentialsId: "registry"
+  network: "mercury-jenkins"
+  environmentsString: |-
+    DOCKER_HOST=tcp://socket-proxy:2375
+    REGISTRY_HOST=${REGISTRY_HOST}
+  mounts:
+    - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
+    - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
+
 jenkins:
   systemMessage: "Mercury CI/CD. Configuración gestionada por código: los cambios hechos en la interfaz se pierden al reiniciar."
   # El controller no ejecuta builds
@@ -26,135 +54,143 @@ jenkins:
         dockerApi:
           dockerHost:
             uri: "tcp://socket-proxy:2375"
-        # Máximo de agentes simultáneos en todo el servidor (12 GB de RAM)
-        containerCap: 2
+        # Máximo de agentes simultáneos en todo el servidor (JENKINS_MAX_AGENTS en .env)
+        containerCap: "${JENKINS_MAX_AGENTS}"
         templates:
-          # Una plantilla por etiqueta. Todas comparten red, variables y montajes;
-          # cambian la imagen y el límite de memoria (MB).
-          - labelString: "base"
+          # Una plantilla por entrada del catálogo AGENTS de `mercury`.
+          #   labelString  <agente>-<versión>; la versión por defecto lleva además la
+          #                etiqueta sin versión, que es la que usan las plantillas Jenkinsfile
+          #   image        la publica `./mercury agents <agente>:<versión>`; si no está
+          #                publicada, el build queda esperando agente
+          #   memoryLimit  en MB
+          - <<: *agent
             name: "base"
-            instanceCapStr: "2"
-            remoteFs: "/home/jenkins/agent"
-            pullStrategy: PULL_ALWAYS
-            pullTimeout: 600
-            removeVolumes: true
-            connector:
-              attach:
-                user: "jenkins"
-            retentionStrategy:
-              idleMinutes: 1
+            labelString: "base"
             dockerTemplateBase:
-              image: "${REGISTRY_HOST}/agents/base:latest"
-              pullCredentialsId: "registry"
-              network: "mercury-jenkins"
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/base:current"
               memoryLimit: 1024
               memorySwap: 1024
-              environmentsString: |-
-                DOCKER_HOST=tcp://socket-proxy:2375
-                REGISTRY_HOST=${REGISTRY_HOST}
-              mounts:
-                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
-                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
 
-          - labelString: "dotnet"
-            name: "dotnet"
-            instanceCapStr: "2"
-            remoteFs: "/home/jenkins/agent"
-            pullStrategy: PULL_ALWAYS
-            pullTimeout: 600
-            removeVolumes: true
-            connector:
-              attach:
-                user: "jenkins"
-            retentionStrategy:
-              idleMinutes: 1
+          # ---- .NET ----
+          - <<: *agent
+            name: "dotnet-8.0"
+            labelString: "dotnet-8.0"
             dockerTemplateBase:
-              image: "${REGISTRY_HOST}/agents/dotnet:latest"
-              pullCredentialsId: "registry"
-              network: "mercury-jenkins"
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/dotnet:8.0"
               memoryLimit: 2048
               memorySwap: 2048
-              environmentsString: |-
-                DOCKER_HOST=tcp://socket-proxy:2375
-                REGISTRY_HOST=${REGISTRY_HOST}
-              mounts:
-                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
-                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
-
-          - labelString: "maven"
-            name: "maven"
-            instanceCapStr: "2"
-            remoteFs: "/home/jenkins/agent"
-            pullStrategy: PULL_ALWAYS
-            pullTimeout: 600
-            removeVolumes: true
-            connector:
-              attach:
-                user: "jenkins"
-            retentionStrategy:
-              idleMinutes: 1
+          - <<: *agent
+            name: "dotnet-9.0"
+            labelString: "dotnet-9.0"
             dockerTemplateBase:
-              image: "${REGISTRY_HOST}/agents/maven:latest"
-              pullCredentialsId: "registry"
-              network: "mercury-jenkins"
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/dotnet:9.0"
               memoryLimit: 2048
               memorySwap: 2048
-              environmentsString: |-
-                DOCKER_HOST=tcp://socket-proxy:2375
-                REGISTRY_HOST=${REGISTRY_HOST}
-              mounts:
-                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
-                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
-
-          - labelString: "python"
-            name: "python"
-            instanceCapStr: "2"
-            remoteFs: "/home/jenkins/agent"
-            pullStrategy: PULL_ALWAYS
-            pullTimeout: 600
-            removeVolumes: true
-            connector:
-              attach:
-                user: "jenkins"
-            retentionStrategy:
-              idleMinutes: 1
+          - <<: *agent
+            name: "dotnet-10.0"
+            labelString: "dotnet-10.0 dotnet"
             dockerTemplateBase:
-              image: "${REGISTRY_HOST}/agents/python:latest"
-              pullCredentialsId: "registry"
-              network: "mercury-jenkins"
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/dotnet:10.0"
+              memoryLimit: 2048
+              memorySwap: 2048
+
+          # ---- Java (Maven) ----
+          - <<: *agent
+            name: "maven-8"
+            labelString: "maven-8"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/maven:8"
+              memoryLimit: 2048
+              memorySwap: 2048
+          - <<: *agent
+            name: "maven-11"
+            labelString: "maven-11"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/maven:11"
+              memoryLimit: 2048
+              memorySwap: 2048
+          - <<: *agent
+            name: "maven-17"
+            labelString: "maven-17"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/maven:17"
+              memoryLimit: 2048
+              memorySwap: 2048
+          - <<: *agent
+            name: "maven-21"
+            labelString: "maven-21 maven"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/maven:21"
+              memoryLimit: 2048
+              memorySwap: 2048
+          - <<: *agent
+            name: "maven-25"
+            labelString: "maven-25"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/maven:25"
+              memoryLimit: 2048
+              memorySwap: 2048
+
+          # ---- Node.js ----
+          - <<: *agent
+            name: "node-20"
+            labelString: "node-20"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/node:20"
+              memoryLimit: 2048
+              memorySwap: 2048
+          - <<: *agent
+            name: "node-22"
+            labelString: "node-22 node"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/node:22"
+              memoryLimit: 2048
+              memorySwap: 2048
+          - <<: *agent
+            name: "node-24"
+            labelString: "node-24"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/node:24"
+              memoryLimit: 2048
+              memorySwap: 2048
+
+          # ---- Python ----
+          - <<: *agent
+            name: "python-3.11"
+            labelString: "python-3.11"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/python:3.11"
               memoryLimit: 1536
               memorySwap: 1536
-              environmentsString: |-
-                DOCKER_HOST=tcp://socket-proxy:2375
-                REGISTRY_HOST=${REGISTRY_HOST}
-              mounts:
-                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
-                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
-
-          - labelString: "node"
-            name: "node"
-            instanceCapStr: "2"
-            remoteFs: "/home/jenkins/agent"
-            pullStrategy: PULL_ALWAYS
-            pullTimeout: 600
-            removeVolumes: true
-            connector:
-              attach:
-                user: "jenkins"
-            retentionStrategy:
-              idleMinutes: 1
+          - <<: *agent
+            name: "python-3.12"
+            labelString: "python-3.12 python"
             dockerTemplateBase:
-              image: "${REGISTRY_HOST}/agents/node:latest"
-              pullCredentialsId: "registry"
-              network: "mercury-jenkins"
-              memoryLimit: 2048
-              memorySwap: 2048
-              environmentsString: |-
-                DOCKER_HOST=tcp://socket-proxy:2375
-                REGISTRY_HOST=${REGISTRY_HOST}
-              mounts:
-                - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
-                - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/python:3.12"
+              memoryLimit: 1536
+              memorySwap: 1536
+          - <<: *agent
+            name: "python-3.13"
+            labelString: "python-3.13"
+            dockerTemplateBase:
+              <<: *agent-base
+              image: "${REGISTRY_HOST}/agents/python:3.13"
+              memoryLimit: 1536
+              memorySwap: 1536
 
 unclassified:
   location:
@@ -172,18 +208,18 @@ jobs:
   # las carpetas. Los padres van antes que los hijos. No usar ${...} en el groovy.
   - script: |
       def carpetas = [
-        'dotnet':             '.NET moderno (ASP.NET Core). Agente: dotnet. Plantilla: apps/_templates/dotnet/Jenkinsfile',
+        'dotnet':             '.NET moderno (ASP.NET Core). Agente: dotnet (dotnet-8.0, dotnet-9.0, dotnet-10.0). Plantilla: apps/_templates/dotnet/Jenkinsfile',
         'java':               'Java',
-        'java/spring':        'Spring Boot con Maven. Agente: maven. Plantilla: apps/_templates/spring/Jenkinsfile',
+        'java/spring':        'Spring Boot con Maven. Agente: maven (maven-8, maven-11, maven-17, maven-21, maven-25). Plantilla: apps/_templates/spring/Jenkinsfile',
         'java/vanilla':       'Java sin framework: JAR ejecutable que escucha en 8080. Agente: maven. Plantilla: apps/_templates/spring/Jenkinsfile',
         'javascript':         'JavaScript y TypeScript',
-        'javascript/node':    'API o servidor Node.js. Agente: node. Plantilla: apps/_templates/node/Jenkinsfile',
+        'javascript/node':    'API o servidor Node.js. Agente: node (node-20, node-22, node-24). Plantilla: apps/_templates/node/Jenkinsfile',
         'javascript/angular': 'Angular. Agente: node. Plantilla: apps/_templates/spa/Jenkinsfile.angular',
         'javascript/react':   'React. Agente: node. Plantilla: apps/_templates/spa/Jenkinsfile.react',
         'javascript/vue':     'Vue. Agente: node. Plantilla: apps/_templates/spa/Jenkinsfile.vue',
         'javascript/vanilla': 'HTML, CSS y JS sin compilar. Agente: base. Plantilla: apps/_templates/static/Jenkinsfile',
         'python':             'Python',
-        'python/flask':       'Flask. Agente: python. Plantilla: apps/_templates/flask/Jenkinsfile',
+        'python/flask':       'Flask. Agente: python (python-3.11, python-3.12, python-3.13). Plantilla: apps/_templates/flask/Jenkinsfile',
       ]
       carpetas.each { ruta, texto ->
         folder(ruta) {
@@ -198,6 +234,7 @@ jobs:
         parameters {
           stringParam('APP', '', 'Nombre de la carpeta en inbox y de la app (minúsculas, números y guiones)')
           choiceParam('RUNTIME', ['dotnet', 'spring', 'flask', 'node', 'static', 'spa'], 'Tipo de compilado')
+          choiceParam('RUNTIME_VERSION', ['default', '8.0', '9.0', '10.0', '8', '11', '17', '21', '25', '20', '22', '24', '3.11', '3.12', '3.13'], 'Versión del runtime: .NET 8.0-10.0, Java 8-25, Node 20-24, Python 3.11-3.13. "default" usa la de la plantilla. No aplica a static ni spa.')
           choiceParam('TARGET_ENV', ['dev', 'prod'], 'Ambiente de despliegue')
         }
         definition {

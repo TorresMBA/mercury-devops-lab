@@ -203,11 +203,11 @@ nano stacks/devops/jenkins/.env      # admin y usuario del registry
 cp stacks/devops/jenkins/credentials.env.example stacks/devops/jenkins/credentials.env
 chmod 600 stacks/devops/jenkins/credentials.env
 nano stacks/devops/jenkins/credentials.env   # usuario y token de cada cuenta de git
-./mercury agents                     # construye y publica las imágenes de agentes (tarda)
+./mercury agents base dotnet maven node python   # imagen base y la versión por defecto de cada lenguaje (tarda)
 ./mercury up jenkins
 ```
 
-Jenkins arranca ya configurado desde `stacks/devops/jenkins/casc/`: usuario administrador, la nube Docker con una plantilla de agente por lenguaje las carpetas por tecnología y el job `manual-release` (`jenkins.yaml`), y las credenciales (`credentials.yaml`). No hay asistente inicial. Si más adelante editas solo esos YAML, aplícalos con `./mercury restart jenkins`. Para usar más de una cuenta de git, mira [Credenciales de git](03-despliegues.md#credenciales-de-git).
+Jenkins arranca ya configurado desde `stacks/devops/jenkins/casc/`: usuario administrador, la nube Docker con una plantilla de agente por lenguaje y versión, las carpetas por tecnología y el job `manual-release` (`jenkins.yaml`), y las credenciales (`credentials.yaml`). No hay asistente inicial. Si más adelante editas solo esos YAML, aplícalos con `./mercury restart jenkins`. Para usar más de una cuenta de git, mira [Credenciales de git](03-despliegues.md#credenciales-de-git).
 
 **Verificación.** Crea un job *Pipeline* con este script y ejecútalo mientras miras `watch docker ps` en el servidor: aparece un contenedor de agente y desaparece al terminar.
 
@@ -218,7 +218,9 @@ pipeline {
 }
 ```
 
-Si el agente no llega a conectar, revisa `./mercury logs jenkins` y `./mercury logs jenkins socket-proxy`. Causas habituales: la imagen del agente no está en el registry (`./mercury agents`) o las credenciales `REGISTRY_USER`/`REGISTRY_PASSWORD` no coinciden con las de `./mercury registry-user`.
+Solo hace falta publicar los agentes que vayas a usar: el resto de versiones del catálogo (`./mercury agents list`) se construyen cuando llegue un proyecto que las necesite, con `./mercury agents <agente>:<versión>`.
+
+Si el agente no llega a conectar, revisa `./mercury logs jenkins` y `./mercury logs jenkins socket-proxy`. Causas habituales: la imagen del agente no está en el registry (`./mercury agents list`) o las credenciales `REGISTRY_USER`/`REGISTRY_PASSWORD` no coinciden con las de `./mercury registry-user`.
 
 ## Fase 4. SonarQube
 

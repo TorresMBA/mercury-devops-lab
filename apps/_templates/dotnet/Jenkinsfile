@@ -1,22 +1,25 @@
-// Plantilla CI para ASP.NET Core. Copiar a la raíz del repo de la app y ajustar APP y PROJECT.
+// Plantilla CI para ASP.NET Core. Copiar a la raíz del repo de la app y ajustar APP, SOLUTION y PROJECT.
 pipeline {
   agent none
 
   options {
     timestamps()
-    disableConcurrentBuilds()
+    // Un push nuevo cancela el build anterior de este job, aunque esté esperando en "Aprobar prod"
+    disableConcurrentBuilds(abortPrevious: true)
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
   environment {
     APP = 'mi-api'                    // nombre de imagen y contenedor: minúsculas y guiones
-    SOLUTION = 'MiApi.slnx'
+    SOLUTION = 'MiApi.slnx'           // solución que se compila y se prueba (.slnx o .sln)
     PROJECT = 'src/MiApi/MiApi.csproj' // proyecto web que se publica
     TAG = "${BUILD_NUMBER}"
   }
 
   stages {
     stage('CI') {
+      // 'dotnet' es la versión por defecto. Para fijar otra: 'dotnet-8.0', 'dotnet-9.0' o 'dotnet-10.0'.
+      // La imagen de la app se empaqueta con la misma versión que el agente.
       agent { label 'dotnet' }
       environment {
         REGISTRY = credentials('registry')

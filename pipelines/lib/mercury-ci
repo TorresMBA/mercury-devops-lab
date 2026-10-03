@@ -20,6 +20,9 @@ SONAR_SCANNER_IMAGE="${SONAR_SCANNER_IMAGE:-sonarsource/sonar-scanner-cli:12.2}"
 # 0 = los hallazgos se informan pero no rompen el build; 1 = lo rompen
 STRICT="${MERCURY_SCAN_STRICT:-0}"
 SEVERITY="${MERCURY_SCAN_SEVERITY:-HIGH,CRITICAL}"
+# Los escáneres corren fuera del límite de memoria del agente: se les pone uno propio
+# para que dos builds a la vez no agoten la RAM del servidor
+SCAN_MEMORY="${MERCURY_SCAN_MEMORY:-1536m}"
 
 SELF="$(hostname)" # dentro de un contenedor, el hostname es su ID
 
@@ -34,9 +37,13 @@ Uso: mercury-ci <paso> [argumentos]
   sonar <clave> [args sonar-scanner]  análisis SonarQube del directorio actual
   semgrep                             SAST del directorio actual
   trivy-fs                            dependencias vulnerables, secretos y configuración
-  package <runtime> <dir> <app> <tag> construye la imagen desde un compilado y la publica
+  package <runtime> <dir> <app> <tag> construye la imagen y la publica
   trivy-image <imagen>                vulnerabilidades de la imagen final
   deploy <app> <dev|prod> <tag>       despliega la imagen en el ambiente
+
+Variables que ajustan `package`:
+  RUNTIME_VERSION     versión del runtime de la imagen; la define el agente (dotnet-8.0 -> 8.0)
+  MERCURY_DOCKERFILE  ruta de un Dockerfile del repo, o "template" para forzar la plantilla
 EOF
 }
 
@@ -48,8 +55,30 @@ image_ref() { echo "$REGISTRY_HOST/apps/$1:$2"; }
 
 # Ejecuta una imagen sobre el workspace del agente, en el mismo directorio
 in_workspace() {
-  docker run --rm --volumes-from "$SELF" -w "$PWD" "$@"
+  docker run --rm --memory "$SCAN_MEMORY" --volumes-from "$SELF" -w "$PWD" "$@"
 }
+
+# Trivy comparte entre builds el volumen con su base de datos. Si dos builds la
+# actualizan a la vez, uno falla: se reintenta. El código 10 son hallazgos en modo
+# estricto (--exit-code 10) y no se reintenta.
+trivy_retry() {
+  local attempt code
+  for attempt in 1 2 3; do
+    code=0
+    "$@" || code=$?
+    if [[ $code -eq 0 ]]; then
+      return 0
+    elif [[ $code -eq 10 ]]; then
+      die "Trivy encontró vulnerabilidades de severidad $SEVERITY (MERCURY_SCAN_STRICT=1)"
+    fi
+    echo "mercury-ci: Trivy terminó con código $code (intento $attempt de 3)" >&2
+    [[ $attempt -lt 3 ]] && sleep 20
+  done
+  return "$code"
+}
+
+# Código de salida de Trivy cuando hay hallazgos: 10 en modo estricto, 0 si solo informa
+trivy_exit_code() { [[ "$STRICT" == 1 ]] && echo 10 || echo 0; }
 
 [[ $# -ge 1 ]] || { usage; exit 1; }
 step="$1"; shift
@@ -95,8 +124,8 @@ case "$step" in
     ;;
 
   trivy-fs)
-    in_workspace -v mercury-trivy-cache:/root/.cache "$TRIVY_IMAGE" fs \
-      --scanners vuln,secret,misconfig --severity "$SEVERITY" --exit-code "$STRICT" .
+    trivy_retry in_workspace -v mercury-trivy-cache:/root/.cache "$TRIVY_IMAGE" fs \
+      --scanners vuln,secret,misconfig --severity "$SEVERITY" --exit-code "$(trivy_exit_code)" .
     ;;
 
   package)
@@ -104,24 +133,56 @@ case "$step" in
     runtime="$1"; context="$2"
     valid_app "$3"
     [[ -d "$context" ]] || die "no existe el directorio $context"
-    # Un Dockerfile propio en el compilado tiene prioridad sobre la plantilla
-    if [[ -f "$context/Dockerfile" ]]; then
+
+    # Dockerfile, de más a menos específico. Un Dockerfile del proyecto gana a la plantilla.
+    choice="${MERCURY_DOCKERFILE:-}"
+    if [[ -n "$choice" && "$choice" != template ]]; then
+      dockerfile="$choice"
+      origin="indicado en MERCURY_DOCKERFILE"
+      [[ -f "$dockerfile" ]] || die "MERCURY_DOCKERFILE apunta a un archivo que no existe: $dockerfile"
+    elif [[ "$choice" != template && -f "$context/Dockerfile" ]]; then
       dockerfile="$context/Dockerfile"
+      origin="del proyecto, en $context"
+    elif [[ "$choice" != template && -f Dockerfile ]]; then
+      dockerfile="Dockerfile"
+      origin="del proyecto, en la raíz del repo"
     else
       dockerfile="$TEMPLATES/$runtime/Dockerfile"
+      origin="plantilla del runtime $runtime"
       [[ -f "$dockerfile" ]] || die "runtime desconocido: $runtime"
     fi
+
+    # La versión del runtime sigue a la del agente (o al parámetro del canal manual)
+    version="${RUNTIME_VERSION:-}"
+    [[ "$version" == default ]] && version=""
+    case "$runtime" in
+      dotnet) version_arg=DOTNET_VERSION ;;
+      spring) version_arg=JAVA_VERSION ;;
+      node)   version_arg=NODE_VERSION ;;
+      flask)  version_arg=PYTHON_VERSION ;;
+      *)      version_arg="" ;;
+    esac
+    build_args=()
+    shown="(versión por defecto del Dockerfile)"
+    if [[ -n "$version" && -n "$version_arg" ]]; then
+      build_args+=(--build-arg "$version_arg=$version")
+      shown="$version"
+    fi
+
     ref="$(image_ref "$3" "$4")"
-    docker build --pull -t "$ref" -f "$dockerfile" "$context"
+    echo "Dockerfile: $dockerfile ($origin)"
+    echo "Contexto:   $context"
+    echo "Runtime:    $runtime $shown"
+    docker build --pull -t "$ref" -f "$dockerfile" "${build_args[@]}" "$context"
     docker push "$ref"
     echo "Imagen publicada: $ref"
     ;;
 
   trivy-image)
     [[ $# -eq 1 ]] || die "uso: trivy-image <imagen>"
-    docker run --rm --network "$AGENT_NETWORK" -e DOCKER_HOST="${DOCKER_HOST:?}" \
+    trivy_retry docker run --rm --memory "$SCAN_MEMORY" --network "$AGENT_NETWORK" -e DOCKER_HOST="${DOCKER_HOST:?}" \
       -v mercury-trivy-cache:/root/.cache "$TRIVY_IMAGE" image \
-      --severity "$SEVERITY" --exit-code "$STRICT" "$1"
+      --severity "$SEVERITY" --exit-code "$(trivy_exit_code)" "$1"
     ;;
 
   deploy)

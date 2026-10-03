@@ -39,11 +39,39 @@ Los jobs se organizan en carpetas por tecnología y framework. Las carpetas las 
 
 - **Java sin framework** usa la plantilla de Spring: sirve para cualquier proyecto Maven que genere un único JAR ejecutable (`java -jar`) y escuche en el puerto 8080.
 - **Angular, React y Vue** se compilan con el agente `node` y se sirven con nginx (runtime `spa`), que devuelve `index.html` en las rutas internas para que recargar `/clientes/5` no dé 404.
-- **.NET Framework (4.x) no está soportado**: solo compila y se ejecuta en Windows, y aquí los agentes y los contenedores son Linux. El .NET moderno (Core, 6, 8...) sí.
+- **.NET Framework (4.x) no está soportado**: solo compila y se ejecuta en Windows, y aquí los agentes y los contenedores son Linux. El .NET moderno sí, en las versiones del catálogo.
+
+### Versiones de los agentes
+
+Cada lenguaje tiene un catálogo de versiones. La etiqueta sin versión (`dotnet`, `maven`...) es la de por defecto; para fijar otra, cambia una línea del Jenkinsfile:
+
+```groovy
+agent { label 'dotnet-8.0' }
+```
+
+| Agente | Etiquetas | Por defecto | Imagen de la app |
+|---|---|---|---|
+| `dotnet` | `dotnet-8.0`, `dotnet-9.0`, `dotnet-10.0` | 10.0 | `aspnet:<versión>` |
+| `maven` | `maven-8`, `maven-11`, `maven-17`, `maven-21`, `maven-25` | 21 | `eclipse-temurin:<versión>-jre` |
+| `node` | `node-20`, `node-22`, `node-24` | 22 | `node:<versión>-alpine` (no aplica a Angular, React y Vue, que se sirven con nginx) |
+| `python` | `python-3.11`, `python-3.12`, `python-3.13` | 3.12 | `python:<versión>-slim` |
+
+La imagen de la app sigue al agente: un build en `dotnet-8.0` se empaqueta sobre `aspnet:8.0` sin configurar nada más.
+
+**Estar en el catálogo no significa estar construido.** Solo existen en el registry las versiones que hayas publicado:
+
+```bash
+./mercury agents list           # qué hay publicado
+./mercury agents dotnet:8.0     # llega un proyecto en .NET 8: se construye y publica solo ese agente
+```
+
+Tarda unos minutos la primera vez. Si un Jenkinsfile pide una versión sin publicar, el build se queda esperando agente hasta que la publiques; no hay que reiniciar Jenkins.
+
+Con `maven-8` y `maven-11`, el análisis de SonarQube no puede usar el plugin de Maven (exige Java 17 o superior): la plantilla `spring/Jenkinsfile` trae comentada la línea alternativa.
 
 Pasos para una app:
 
-1. Copia la plantilla de su fila a la raíz del repo de la app con el nombre `Jenkinsfile` y ajusta las variables del bloque `environment` (`APP`, y `PROJECT` en .NET o `DIST_DIR` en Angular, React y Vue).
+1. Copia la plantilla de su fila a la raíz del repo de la app con el nombre `Jenkinsfile` y ajusta las variables del bloque `environment` (`APP`, y `SOLUTION` y `PROJECT` en .NET o `DIST_DIR` en Angular, React y Vue).
 2. En Jenkins, entra en la carpeta de su tecnología y pulsa *Nueva tarea > Pipeline*. Definición *Pipeline script from SCM*, Git, URL del repo, la credencial de la cuenta dueña del repo (por ejemplo `github-mercury`), rama `*/main`.
 3. Lanza el build.
 
@@ -56,29 +84,78 @@ Etapas del pipeline:
 | Build y test | Compila y ejecuta los tests dentro del agente del lenguaje |
 | SonarQube + Quality gate | Analiza el código; si no pasa el *quality gate*, el pipeline se detiene |
 | Seguridad | Semgrep (fallos de seguridad en el código) y Trivy (dependencias vulnerables, secretos, configuración) |
-| Imagen | Empaqueta el compilado con el `Dockerfile` plantilla, publica la imagen y la escanea con Trivy |
+| Imagen | Empaqueta el compilado con el `Dockerfile` del proyecto si lo tiene, o con la plantilla; publica la imagen y la escanea con Trivy |
 | Deploy dev | Despliega en dev automáticamente |
-| Aprobar prod | Espera una confirmación manual (hasta 24 h), sin ocupar ningún agente |
+| Aprobar prod | Espera una confirmación manual (hasta 24 h), sin ocupar ningún agente. Un push nuevo cancela el build que estaba esperando |
 | Deploy prod | Despliega **la misma imagen** que se probó en dev |
 
 Por defecto los escáneres de seguridad informan pero no rompen el build. Para que los hallazgos de severidad alta o crítica lo detengan, añade al `environment` del Jenkinsfile: `MERCURY_SCAN_STRICT = '1'`.
 
 **Disparo automático.** Jenkins no es visible desde internet, así que GitHub no puede enviarle webhooks. Lo más simple es que Jenkins consulte el repo: en el job, *Build Triggers > Poll SCM* con `H/5 * * * *` (cada 5 minutos).
 
-**Dockerfile propio.** Si el compilado incluye un `Dockerfile` en su raíz, se usa ese en lugar de la plantilla.
+### Dockerfile propio
+
+La plantilla de `apps/_templates/<runtime>/Dockerfile` sirve para una app sin dependencias del sistema. Cuando no alcanza, el Dockerfile del proyecto tiene prioridad. `mercury-ci package` busca en este orden y escribe en el log cuál usó:
+
+1. El indicado en `MERCURY_DOCKERFILE` (variable del `environment` del Jenkinsfile; ruta relativa a la raíz del repo).
+2. `Dockerfile` dentro de la carpeta que se empaqueta.
+3. `Dockerfile` en la raíz del repo de la app.
+4. La plantilla del runtime.
+
+Dos formas de usarlo:
+
+**Empaquetado ampliado.** La app necesita paquetes del sistema, fuentes o certificados. Deja un `Dockerfile` en la raíz del repo que parta del compilado; el Jenkinsfile no cambia.
+
+```dockerfile
+ARG DOTNET_VERSION=10.0
+FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends libgdiplus fonts-liberation \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY . .
+ENV ASPNETCORE_HTTP_PORTS=8080
+USER $APP_UID
+ENTRYPOINT ["dotnet", "MiApi.dll"]
+```
+
+**Build completo.** En proyectos grandes, el Dockerfile compila dentro (multi-etapa). En la etapa *Imagen* del Jenkinsfile, empaqueta la raíz del repo en lugar del compilado:
+
+```groovy
+sh '''
+  mercury-ci login
+  mercury-ci package dotnet . "$APP" "$TAG"
+'''
+```
+
+Reglas para un Dockerfile propio:
+
+- Escuchar en el puerto **8080**: es lo que esperan el despliegue, Nginx Proxy Manager y el túnel.
+- Terminar con un usuario sin privilegios (`USER`).
+- Declarar el `ARG` de versión de su runtime (`DOTNET_VERSION`, `JAVA_VERSION`, `NODE_VERSION`, `PYTHON_VERSION`) si quieres que siga a la versión del agente.
+- Un build completo compila en el Docker del servidor, fuera del límite de memoria del agente: vigila la RAM si lanzas dos a la vez.
+
+Para ignorar un `Dockerfile` del repo que sea para otra cosa (desarrollo local), define `MERCURY_DOCKERFILE = 'template'`.
+
+### Builds simultáneos
+
+- Proyectos distintos se construyen en paralelo, hasta `JENKINS_MAX_AGENTS` agentes a la vez (2 por defecto, en `stacks/devops/jenkins/.env`). Cada agente reserva hasta 2 GB y sus escáneres otros 1,5 GB: con 12 GB y SonarQube en marcha, 2 es el máximo prudente. El tercero espera en cola.
+- En un mismo job solo corre un build: el nuevo cancela al anterior, también si estaba esperando en *Aprobar prod*.
+- `manual-release` admite varias ejecuciones a la vez; solo se serializan los despliegues de la misma app y ambiente.
 
 ### Primer pipeline paso a paso (.NET)
 
 Antes de empezar, comprueba que:
 
-- `./mercury agents` terminó bien y el job de prueba de la [fase 3](02-puesta-en-marcha.md#fase-3-jenkins) arranca un agente `dotnet`.
+- `./mercury agents list` muestra publicada la versión de .NET del proyecto y el job de prueba de la [fase 3](02-puesta-en-marcha.md#fase-3-jenkins) arranca un agente `dotnet`.
 - SonarQube está en marcha, con `SONAR_TOKEN` en el `.env` de Jenkins y el webhook creado ([fase 4](02-puesta-en-marcha.md#fase-4-sonarqube)).
 - La credencial de git de la cuenta dueña del repo tiene su token en `credentials.env`.
-- El proyecto apunta a `net8.0`. El agente y la imagen de ejecución traen .NET 8; para otra versión cambia `DOTNET_VERSION` en `stacks/devops/jenkins/agents/dotnet/Dockerfile` y en `apps/_templates/dotnet/Dockerfile`, y ejecuta `./mercury agents`.
+- El `TargetFramework` del proyecto coincide con el agente del Jenkinsfile: `net10.0` con `dotnet` (por defecto), `net8.0` con `dotnet-8.0`. Si no coinciden, la app compila pero falla en los tests y al arrancar porque no está su runtime.
 
-1. **En el repo de la app**, copia `apps/_templates/dotnet/Jenkinsfile` a la raíz y ajusta dos líneas:
+1. **En el repo de la app**, copia `apps/_templates/dotnet/Jenkinsfile` a la raíz y ajusta tres líneas:
    ```groovy
    APP = 'mi-api'                       // será el nombre de la imagen, del contenedor y del proyecto en SonarQube
+   SOLUTION = 'MiApi.slnx'              // solución que se compila y se prueba (.slnx o .sln), relativa a la raíz del repo
    PROJECT = 'src/MiApi/MiApi.csproj'   // ruta del proyecto web, relativa a la raíz del repo
    ```
    Súbelo a la rama `main`.
@@ -95,9 +172,11 @@ Si algo falla:
 
 | Síntoma | Causa habitual |
 |---|---|
-| El build se queda en "Waiting for next available executor" | La imagen del agente no está en el registry (`./mercury agents`) o ya hay 2 agentes en marcha |
+| El build se queda en "Waiting for next available executor" | La versión del agente no está publicada (`./mercury agents list`, y `./mercury agents <agente>:<versión>` para publicarla); la etiqueta del Jenkinsfile no existe (`dotnet-7.0`); o ya hay `JENKINS_MAX_AGENTS` agentes en marcha |
 | Falla el checkout con error de autenticación | Token caducado o sin permiso de lectura; o la credencial elegida no es de ese proveedor |
-| `NETSDK1045` en la compilación | El proyecto pide una versión de .NET más nueva que la del agente |
+| `NETSDK1045` en la compilación | El proyecto pide una versión de .NET más nueva que la del agente: usa la etiqueta de su versión (`dotnet-10.0`) |
+| "You must install or update .NET to run this application" en los tests o en `docker logs mi-api-dev` | El proyecto apunta a una versión distinta de la del agente: cambia la etiqueta del Jenkinsfile a la de su `TargetFramework` |
+| `MSB1009` o "Project file does not exist" en *Build, test y SonarQube* | `SOLUTION` no coincide con la ruta del `.slnx` o `.sln` |
 | `MSB1009` o "Project file does not exist" en *Imagen* | `PROJECT` no coincide con la ruta del `.csproj` |
 | *Quality gate* se agota a los 10 minutos | Falta el webhook de SonarQube hacia `http://jenkins:8080/sonarqube-webhook/` |
 | *Deploy dev* falla tras 120 segundos | El contenedor no arranca: `docker logs mi-api-dev`. Suele faltar configuración en `/srv/mercury/apps/dev/mi-api.env` |
@@ -148,7 +227,7 @@ Las credenciales creadas desde la interfaz de Jenkins se pierden al reiniciar: l
    - Estático: copia la carpeta del sitio
    - Angular / React / Vue: `npm run build` → copia el contenido de la carpeta generada (la que tiene `index.html`) y elige el runtime `spa`
 2. Cópialo a `inbox/<app>/` por Samba (`\\IP\inbox`) o SFTP (usuario `deployer`). El nombre de la carpeta es el nombre de la app: minúsculas, números y guiones.
-3. En Jenkins, job **manual-release** > *Build with Parameters*: `APP`, `RUNTIME` y `TARGET_ENV`.
+3. En Jenkins, job **manual-release** > *Build with Parameters*: `APP`, `RUNTIME`, `RUNTIME_VERSION` y `TARGET_ENV`. `RUNTIME_VERSION` es la versión con la que compilaste (8.0 para `net8.0`, 17 para Java 17); `default` usa la de la plantilla. Si la carpeta incluye un `Dockerfile`, se usa ese.
 
 La imagen queda en el registry como `apps/<app>:manual-<n>`, con lo que tienes historial y puedes volver a una versión anterior.
 
@@ -157,7 +236,8 @@ La imagen queda en el registry como `apps/<app>:manual-<n>`, con lo que tienes h
 Para probar algo al momento, sin Jenkins ni imagen: el contenedor monta directamente la carpeta de inbox.
 
 ```bash
-./mercury quick <app> <dotnet|spring|flask|node|static>
+./mercury quick <app> <dotnet|spring|flask|node|static> [versión]
+./mercury quick mi-api dotnet 8.0
 ```
 
 Repite el comando tras copiar una versión nueva (en sitios estáticos no hace falta). El runtime `spa` no tiene modo rápido: un Angular o React compilado se prueba con `static`, sin el retorno a `index.html` en rutas internas. Usa el mismo nombre de contenedor que el canal normal (`<app>-dev`), así que comparte dominio en NPM; el último que despliegues es el que queda.

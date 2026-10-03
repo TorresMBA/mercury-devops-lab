@@ -20,7 +20,17 @@ STACKS=(
 JENKINS_DIR="$ROOT/stacks/devops/jenkins"
 DNS_DIR="$ROOT/stacks/core/dns"
 RUNTIMES=(dotnet spring flask node static)
-AGENTS=(dotnet maven python node)
+# Catálogo de agentes de Jenkins como <agente>:<versión>. Estar aquí no implica estar
+# construido: solo se publican los que se piden con `./mercury agents <agente>:<versión>`.
+# Cada entrada necesita su plantilla en stacks/devops/jenkins/casc/jenkins.yaml.
+AGENTS=(
+  dotnet:8.0 dotnet:9.0 dotnet:10.0
+  maven:8 maven:11 maven:17 maven:21 maven:25
+  node:20 node:22 node:24
+  python:3.11 python:3.12 python:3.13
+)
+# Versión que se usa al pedir el agente sin versión (etiqueta `dotnet`, `maven`...)
+declare -A AGENT_DEFAULT=([dotnet]=10.0 [maven]=21 [node]=22 [python]=3.12)
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -47,11 +57,16 @@ DNS interno:
   check-dns [nombre]    Diagnostica por qué no resuelve o no responde un nombre interno
                         (por defecto, el del registry)
 
-Jenkins:
-  agents                Construye y publica las imágenes de agentes en el registry
+Agentes de Jenkins (imágenes en el registry):
+  agents list                       Catálogo de versiones y cuáles están publicadas
+  agents <agente>[:<versión>] ...   Construye y publica solo esos (dotnet:8.0, maven:17, base)
+                                    Sin versión se usa la de por defecto del agente
+  agents                            Reconstruye la base y los agentes ya publicados
+  agents rollback <agente>:<versión> <commit>
+                                    Vuelve a la imagen construida en ese commit
 
 Apps:
-  quick <app> <runtime> Modo rápido (dev): sirve INBOX_DIR/<app> con bind-mount
+  quick <app> <runtime> [versión]   Modo rápido (dev): sirve INBOX_DIR/<app> con bind-mount
                         runtimes: dotnet spring flask node static
   deploy <app> <dev|prod> <tag>   Despliega la imagen apps/<app>:<tag> del registry
   undeploy <app> <dev|prod>       Elimina el contenedor de la app
@@ -248,23 +263,121 @@ case "$cmd" in
     [[ -f "$JENKINS_DIR/.env" ]] || die "falta stacks/devops/jenkins/.env"
     set -a; . "$JENKINS_DIR/.env"; set +a
     repo="$REGISTRY_HOST/agents"
-    # El contexto es la raíz del repo: la imagen base incluye pipelines/lib y apps/_templates
-    docker build --pull -t "$repo/base:latest" \
-      --build-arg AGENT_VERSION="$AGENT_VERSION" \
-      -f "$JENKINS_DIR/agents/base/Dockerfile" "$ROOT"
-    for a in "${AGENTS[@]}"; do
-      docker build -t "$repo/$a:latest" --build-arg BASE="$repo/base:latest" "$JENKINS_DIR/agents/$a"
-    done
-    for a in base "${AGENTS[@]}"; do
-      docker push "$repo/$a:latest"
-    done
+
+    # Commit del repo de infraestructura con el que se construye: etiqueta fija de cada imagen
+    revision="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo sin-git)"
+    [[ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]] || revision="$revision-dirty"
+
+    # Normaliza "dotnet" o "dotnet:8.0" a una entrada del catálogo
+    agent_spec() {
+      local name="${1%%:*}" version=""
+      [[ "$1" == *:* ]] && version="${1#*:}"
+      [[ -n "${AGENT_DEFAULT[$name]:-}" ]] || die "agente desconocido: '$name' (ver ./mercury agents list)"
+      [[ -n "$version" ]] || version="${AGENT_DEFAULT[$name]}"
+      [[ " ${AGENTS[*]} " == *" $name:$version "* ]] \
+        || die "'$name:$version' no está en el catálogo (ver ./mercury agents list). Para añadirla: docs/04-operacion-y-futuro.md"
+      echo "$name:$version"
+    }
+
+    published() { docker manifest inspect "$1" >/dev/null 2>&1; }
+
+    build_base() {
+      echo "== base ($revision)"
+      # El contexto es la raíz del repo: la imagen base incluye pipelines/lib y apps/_templates
+      docker build --pull -t "$repo/base:current" -t "$repo/base:$revision" \
+        --build-arg AGENT_VERSION="$AGENT_VERSION" \
+        --label org.opencontainers.image.revision="$revision" \
+        -f "$JENKINS_DIR/agents/base/Dockerfile" "$ROOT"
+      docker push "$repo/base:current"
+      docker push "$repo/base:$revision"
+      base_ready=1
+    }
+
+    # La base se construye como mucho una vez por ejecución, y solo si hace falta
+    base_ready=0
+    ensure_base() {
+      [[ $base_ready -eq 1 ]] && return 0
+      if docker image inspect "$repo/base:current" >/dev/null 2>&1 || published "$repo/base:current"; then
+        base_ready=1
+      else
+        build_base
+      fi
+    }
+
+    build_agent() { # build_agent <agente>:<versión>
+      local name="${1%%:*}" version="${1#*:}"
+      ensure_base
+      echo "== $name:$version ($revision)"
+      docker build -t "$repo/$name:$version" -t "$repo/$name:$version-$revision" \
+        --build-arg BASE="$repo/base:current" \
+        --build-arg VERSION="$version" \
+        --label org.opencontainers.image.revision="$revision" \
+        "$JENKINS_DIR/agents/$name"
+      docker push "$repo/$name:$version"
+      docker push "$repo/$name:$version-$revision"
+    }
+
+    case "${1:-}" in
+      list)
+        printf '%-14s %-22s %s\n' AGENTE "ETIQUETA EN JENKINS" PUBLICADA
+        state="no"; published "$repo/base:current" && state="sí"
+        printf '%-14s %-22s %s\n' base base "$state"
+        for a in "${AGENTS[@]}"; do
+          name="${a%%:*}"; version="${a#*:}"
+          label="$name-$version"
+          [[ "${AGENT_DEFAULT[$name]}" == "$version" ]] && label="$label, $name"
+          state="no"; published "$repo/$a" && state="sí"
+          printf '%-14s %-22s %s\n' "$a" "$label" "$state"
+        done
+        echo
+        echo "Publicar una que falte: ./mercury agents <agente>:<versión>"
+        ;;
+
+      rollback)
+        [[ $# -eq 3 ]] || die "uso: mercury agents rollback <agente>:<versión> <commit>"
+        if [[ "$2" == base ]]; then
+          current="$repo/base:current"; fixed="$repo/base:$3"
+        else
+          spec="$(agent_spec "$2")"
+          current="$repo/$spec"; fixed="$repo/$spec-$3"
+        fi
+        docker pull "$fixed" || die "no existe $fixed (las etiquetas fijas se ven en https://$REGISTRY_HOST)"
+        docker tag "$fixed" "$current"
+        docker push "$current"
+        echo "$current apunta ahora a la imagen de $3. El siguiente build ya la usa."
+        ;;
+
+      "")
+        # Los agentes heredan de la base: tras cambiarla se reconstruyen los que están en uso
+        targets=()
+        for a in "${AGENTS[@]}"; do
+          if published "$repo/$a"; then targets+=("$a"); fi
+        done
+        build_base
+        for a in "${targets[@]}"; do build_agent "$a"; done
+        [[ ${#targets[@]} -gt 0 ]] || echo "No hay agentes publicados todavía. Publica uno con: ./mercury agents <agente>:<versión>"
+        ;;
+
+      *)
+        # Se validan todos los argumentos antes de construir nada
+        targets=()
+        for arg in "$@"; do
+          if [[ "$arg" == base ]]; then targets+=(base); else targets+=("$(agent_spec "$arg")"); fi
+        done
+        for t in "${targets[@]}"; do
+          if [[ "$t" == base ]]; then build_base; else build_agent "$t"; fi
+        done
+        ;;
+    esac
     ;;
 
   quick)
-    [[ $# -eq 2 ]] || die "uso: mercury quick <app> <runtime>"
+    [[ $# -eq 2 || $# -eq 3 ]] || die "uso: mercury quick <app> <runtime> [versión]"
     valid_app "$1"
     [[ " ${RUNTIMES[*]} " == *" $2 "* ]] || die "runtime inválido: '$2' (${RUNTIMES[*]})"
     [[ -d "$INBOX_DIR/$1" ]] || die "no existe $INBOX_DIR/$1"
+    # Sin versión, cada compose.quick.yaml usa la de por defecto de su runtime
+    [[ $# -eq 3 ]] && export RUNTIME_VERSION="$3"
     APP="$1" docker compose --env-file "$ROOT/.env" -f "$TEMPLATES/$2/compose.quick.yaml" up -d --force-recreate
     echo "Listo: en NPM apunta $1-dev.$INT_DOMAIN a http://$1-dev:8080"
     ;;

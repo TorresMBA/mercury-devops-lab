@@ -1,10 +1,10 @@
 # Modo rápido (dev): ejecuta el .jar copiado a inbox, sin construir imagen.
-# Uso: ./mercury quick <app> spring   (repetir tras copiar una versión nueva)
+# Uso: ./mercury quick <app> spring [8|11|17|21|25]   (repetir tras copiar una versión nueva)
 name: ${APP}-dev
 
 services:
   app:
-    image: eclipse-temurin:21-jre
+    image: eclipse-temurin:${RUNTIME_VERSION:-21}-jre
     container_name: ${APP}-dev
     restart: unless-stopped
     working_dir: /app

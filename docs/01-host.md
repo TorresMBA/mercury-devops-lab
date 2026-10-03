@@ -48,7 +48,7 @@ nano .env                                  # dominio, IP, subred, HDD_UUID, zona
 
 ## Ejecutar los scripts
 
-Son idempotentes: se pueden repetir sin efectos secundarios.
+Son idempotentes: se pueden repetir sin efectos secundarios. `02-disks.sh` solo crea los directorios que faltan y nunca cambia el dueño de uno que ya existe; si alguno quedó con un dueño incorrecto (por ejemplo, porque Docker lo creó como root al levantar un stack antes de ejecutar el script), corrígelo a mano con `sudo chown -R <uid>:<gid> <ruta>` (los UID están en el propio script).
 
 ```bash
 sudo ./host/01-base.sh       # paquetes, kernel, swap, usuario SFTP, SSH, firewall
