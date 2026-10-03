@@ -1,6 +1,6 @@
 # Empaqueta la salida de `dotnet publish -c Release -o publish`.
 # Contexto de build: la carpeta publicada. DOTNET_VERSION debe coincidir con el TargetFramework.
-ARG DOTNET_VERSION=8.0
+ARG DOTNET_VERSION=10.0
 FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION}
 
 WORKDIR /app
