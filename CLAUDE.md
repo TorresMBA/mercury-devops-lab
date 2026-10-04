@@ -91,7 +91,7 @@ Canal manual: compilado copiado a INBOX_DIR/<app> → job manual-release ──�
 - `apps/_templates/compose.deploy.yaml` es el único compose de despliegue, para cualquier runtime y ambos canales. También lo usa `./mercury deploy` desde el host.
 - El `Dockerfile` de cada runtime empaqueta un compilado ya hecho (no compila): por eso sirve igual para el canal manual y para el CI.
 - El job `manual-release` se define en `casc/jenkins.yaml` (job-dsl), con sus parámetros ahí y no en el Jenkinsfile, que se lee del repo montado en el controller (`/usr/share/jenkins/pipelines`).
-- Las carpetas de Jenkins por tecnología y framework (`dotnet`, `java/spring`, `javascript/angular`...) también salen de job-dsl en `casc/jenkins.yaml` (mapa `carpetas`). Los jobs de cada app se crean a mano dentro y viven en `DATA_DIR/jenkins`, no en el repo. La tabla carpeta → agente → plantilla → runtime está en `docs/03-despliegues.md`.
+- Las carpetas de Jenkins por tecnología y framework (`dotnet`, `java/spring`, `javascript/angular`...) también salen de job-dsl en `casc/jenkins.yaml` (mapa `carpetas`). Los jobs de cada app se crean a mano dentro y viven en `DATA_DIR/jenkins`, no en el repo. La tabla carpeta → agente → plantilla → runtime está en `docs/instalacion/03-despliegues.md`.
 - Runtimes de empaquetado: `dotnet`, `spring`, `flask`, `node`, `static` y `spa` (nginx con retorno a `index.html`; lo usan Angular, React y Vue, con plantillas `spa/Jenkinsfile.angular`, `spa/Jenkinsfile.react` y `spa/Jenkinsfile.vue`). Un runtime nuevo se añade también al `choiceParam` `RUNTIME` de `manual-release`; la lista `RUNTIMES` de `mercury` solo cubre los que tienen `compose.quick.yaml` (`spa` no).
 
 ### Convenciones de las que dependen varias piezas
@@ -109,11 +109,15 @@ Canal manual: compilado copiado a INBOX_DIR/<app> → job manual-release ──�
 
 ### Convenciones de los compose
 
-`name:` explícito; versión de imagen en variable del `.env` del stack (nunca `latest` para imágenes de terceros); `restart: unless-stopped`; `mem_limit`; `no-new-privileges` salvo donde rompe o no está probado (Samba, cAdvisor, AdGuard). Un stack nuevo se añade también a la lista `STACKS` de `mercury` como `<grupo>/<stack>`, y sus directorios de datos a `host/02-disks.sh` (que solo crea lo que falta, nunca cambia dueños de lo existente). La receta completa está en `docs/04-operacion-y-futuro.md`.
+`name:` explícito; versión de imagen en variable del `.env` del stack (nunca `latest` para imágenes de terceros); `restart: unless-stopped`; `mem_limit`; `no-new-privileges` salvo donde rompe o no está probado (Samba, cAdvisor, AdGuard). Un stack nuevo se añade también a la lista `STACKS` de `mercury` como `<grupo>/<stack>`, y sus directorios de datos a `host/02-disks.sh` (que solo crea lo que falta, nunca cambia dueños de lo existente). La receta completa está en `docs/instalacion/04-operacion-y-futuro.md`.
+
+## Documentación
+
+`docs/README.md` es el índice, con tres carpetas: `docs/instalacion/` (`01` a `04`, guías de instalación y operación), `docs/arquitectura/` (`05` a `13`: arquitectura, redes, Jenkins y agentes, pipelines, registry, observabilidad, referencia y mantenimiento, con diagramas Mermaid) y `docs/scripts/` (interior de `mercury` y `mercury-ci`, y cuándo se aplica un cambio en cada script). Un cambio en una convención, una lista (`STACKS`, `AGENTS`, `RUNTIMES`), un puerto, una red, un `mem_limit` o una versión fijada se refleja en el documento que lo describe, en el mismo cambio; un comando o paso nuevo de los scripts, en `docs/scripts/` y en `docs/arquitectura/12-referencia.md`. La lista de lo no verificado se repite en `docs/arquitectura/13-mantenimiento-y-extension.md`. Los enlaces entre carpetas son relativos (`../arquitectura/...`): al mover un documento hay que actualizar también las rutas citadas en `mercury`, `host/*.sh` y `README.md`.
 
 ## Entorno de edición
 
 - `.gitattributes` fuerza LF: los scripts se ejecutan en Linux. No introducir CRLF.
-- El bit de ejecución no se conserva desde Windows; los scripts se invocan con `bash <script>` donde importa (systemd, `mercury backup`) y `docs/01-host.md` indica el `chmod` tras clonar. Los scripts añadidos después del clonado inicial se documentan siempre como `bash host/<script>`.
+- El bit de ejecución no se conserva desde Windows; los scripts se invocan con `bash <script>` donde importa (systemd, `mercury backup`) y `docs/instalacion/01-host.md` indica el `chmod` tras clonar. Los scripts añadidos después del clonado inicial se documentan siempre como `bash host/<script>`.
 - Mover o renombrar un stack deja atrás su `.env` no versionado en el servidor: hay que acompañarlo de un paso de migración (precedente: `host/migrate-layout.sh`).
 - En los compose, `$` literal dentro de `command:` se escribe `$$`. En `casc/jenkins.yaml`, `${VAR}` lo sustituye JCasC con variables de entorno del controller, también dentro de los scripts de `jobs:`.

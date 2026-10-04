@@ -54,7 +54,7 @@ Son idempotentes: se pueden repetir sin efectos secundarios. `02-disks.sh` solo 
 sudo ./host/01-base.sh       # paquetes, kernel, swap, usuario SFTP, SSH, firewall
 sudo ./host/02-disks.sh      # monta el HDD y crea /srv/mercury y /mnt/hdd/mercury
 sudo ./host/03-docker.sh     # Docker Engine + daemon.json
-sudo ./host/04-networks.sh   # redes net-tools, net-apps-dev, net-apps-prod
+sudo ./host/04-networks.sh   # redes net-tools, net-apps-dev, net-apps-prod, net-obs
 sudo passwd deployer         # contraseña del usuario del canal manual (SFTP)
 ```
 
@@ -85,7 +85,7 @@ sysctl vm.max_map_count                    # 524288
 free -h                                    # swap total ~8 GB
 df -h /srv /mnt/hdd                        # el HDD montado en /mnt/hdd
 docker info | grep -A3 "Default Address"   # 10.200.0.0/16
-docker network ls                          # net-tools, net-apps-dev, net-apps-prod
+docker network ls                          # net-tools, net-apps-dev, net-apps-prod, net-obs
 ```
 
 Desde otra PC de la LAN, comprueba que solo responden los puertos previstos (22 ahora; 53, 80, 443, 81 y 445 cuando levantes los stacks):

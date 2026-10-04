@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Monta el HDD y crea el árbol de directorios con los dueños que espera cada imagen.
-# No particiona ni formatea: eso se hace a mano una vez (ver docs/01-host.md).
+# No particiona ni formatea: eso se hace a mano una vez (ver docs/instalacion/01-host.md).
 # Uso: sudo ./host/02-disks.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 

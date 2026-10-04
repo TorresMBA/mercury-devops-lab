@@ -22,4 +22,4 @@ create net-apps-dev
 create net-apps-prod
 create net-obs --internal
 
-log "Listo. Siguiente: docs/02-puesta-en-marcha.md"
+log "Listo. Siguiente: docs/instalacion/02-puesta-en-marcha.md"

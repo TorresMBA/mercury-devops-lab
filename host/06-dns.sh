@@ -49,5 +49,5 @@ Los contenedores toman el DNS nuevo al crearse. Recrea los que ya estaban en mar
 y usan nombres internos:
   ./mercury compose jenkins up -d --force-recreate
 
-Para tus equipos de la LAN, ver "Usar AdGuard en la red" en docs/02-puesta-en-marcha.md.
+Para tus equipos de la LAN, ver "Usar AdGuard en la red" en docs/instalacion/02-puesta-en-marcha.md.
 EOF

@@ -275,7 +275,7 @@ case "$cmd" in
       [[ -n "${AGENT_DEFAULT[$name]:-}" ]] || die "agente desconocido: '$name' (ver ./mercury agents list)"
       [[ -n "$version" ]] || version="${AGENT_DEFAULT[$name]}"
       [[ " ${AGENTS[*]} " == *" $name:$version "* ]] \
-        || die "'$name:$version' no está en el catálogo (ver ./mercury agents list). Para añadirla: docs/04-operacion-y-futuro.md"
+        || die "'$name:$version' no está en el catálogo (ver ./mercury agents list). Para añadirla: docs/instalacion/04-operacion-y-futuro.md"
       echo "$name:$version"
     }
 

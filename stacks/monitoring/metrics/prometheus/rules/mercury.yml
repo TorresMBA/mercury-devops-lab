@@ -1,5 +1,5 @@
 # Alertas básicas. Se ven en Prometheus (Alerts) y en Grafana (Alerting).
-# Para recibirlas por correo, Telegram, etc. hay que añadir Alertmanager (docs/04).
+# Para recibirlas por correo, Telegram, etc. hay que añadir Alertmanager (docs/instalacion/04-operacion-y-futuro.md).
 groups:
   - name: mercury-host
     rules:
