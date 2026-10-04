@@ -63,6 +63,9 @@ jenkins:
             uri: "tcp://socket-proxy:2375"
         # Máximo de agentes simultáneos en todo el servidor (JENKINS_MAX_AGENTS en .env)
         containerCap: "${JENKINS_MAX_AGENTS}"
+        # Segundos que el plugin deja de crear agentes tras un fallo al crear uno. Por
+        # defecto son 300: un solo error de conexión dejaba los builds 5 minutos en cola.
+        errorDuration: 15
         templates:
           # Una plantilla por entrada del catálogo AGENTS de `mercury`.
           #   labelString  <agente>-<versión>; la versión por defecto lleva además la

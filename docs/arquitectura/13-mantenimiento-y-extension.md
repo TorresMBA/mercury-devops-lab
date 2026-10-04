@@ -172,6 +172,7 @@ Mientras el `name:` del compose no cambie, el proyecto sigue siendo el mismo y l
 En el servidor ya funcionan `edge`, `registry` y `jenkins`. Lo siguiente está escrito pero **no se ha ejecutado en el servidor**; al tocarlo o al ponerlo en marcha por primera vez, hay que comprobarlo y actualizar esta lista:
 
 - Los permisos de `socket-proxy` para builds (`BUILD`, `SESSION`, `GRPC`).
+- La plantilla propia de HAProxy en `socket-proxy` (`timeout http-keep-alive 1h`) y `errorDuration` en la nube Docker.
 - El arranque de AdGuard desde `AdGuardHome.yaml.tmpl` y `host/06-dns.sh`.
 - Las credenciales por dominio de Jenkins (`casc/credentials.yaml` con `credentials.env`).
 - Las carpetas de Jenkins creadas por job-dsl.
@@ -197,6 +198,7 @@ Por dónde empezar según el síntoma. Cada documento enlazado tiene el detalle.
 | Un nombre `*.int.<dominio>` no resuelve o no responde | `./mercury check-dns <nombre>` | [07](07-redes-y-dns.md#diagnóstico), [02](../instalacion/02-puesta-en-marcha.md#si-el-nombre-no-resuelve) |
 | `docker login` falla | Tabla de errores de la fase 2 | [02](../instalacion/02-puesta-en-marcha.md#fase-2-registry) |
 | Build en *Waiting for next available executor* | `./mercury agents list`; revisar la etiqueta del Jenkinsfile y `JENKINS_MAX_AGENTS` | [08](08-jenkins-y-agentes.md#ciclo-de-vida-de-un-agente) |
+| Build 6 a 8 minutos en *Waiting for next available executor* sin nada más en marcha; en `./mercury logs jenkins`, `Exception while provisioning` o `Failed to stop container` con `Broken pipe` | Conexiones caducadas entre el plugin Docker y `socket-proxy`: comprobar que está montada `socket-proxy/haproxy.cfg.template` y que la nube tiene `errorDuration` | [08](08-jenkins-y-agentes.md#conexiones-entre-jenkins-y-socket-proxy) |
 | El agente no llega a conectar | `./mercury logs jenkins` y `./mercury logs jenkins socket-proxy` | [02](../instalacion/02-puesta-en-marcha.md#fase-3-jenkins) |
 | Jenkins no arranca tras editar `casc/` | `./mercury logs jenkins`: JCasC indica la clave que no entiende | [08](08-jenkins-y-agentes.md#configuración-como-código) |
 | *Quality gate* falla al instante con `Unable to guess SonarQube task id` y antes aparece `Unable to locate 'report-task.txt' in the workspace` | El escáner escribió su carpeta de trabajo fuera del *workspace*. `mercury-ci sonar` la fija con `sonar.working.directory`; si el agente es anterior a ese cambio, `./mercury agents` | [09](09-pipelines-y-despliegue.md#comunicación-con-sonarqube) |

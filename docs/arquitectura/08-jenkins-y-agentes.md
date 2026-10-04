@@ -79,6 +79,24 @@ Cada variable a `1` habilita una familia de llamadas a la API de Docker:
 
 Filtrar no equivale a aislar: poder crear contenedores sigue siendo poder montar cualquier ruta del host.
 
+### Conexiones entre Jenkins y `socket-proxy`
+
+`socket-proxy` es un HAProxy. El plugin Docker de Jenkins guarda sus conexiones HTTP abiertas y las reutiliza sin comprobar si siguen vivas. Con la configuración de la imagen, HAProxy cierra una conexión tras 10 segundos sin uso (`timeout http-keep-alive 10s`), de modo que la siguiente llamada del plugin salía por una conexión ya cerrada y fallaba con `Broken pipe` o `socket-proxy:2375 failed to respond`. Dos consecuencias:
+
+- **Al crear un agente**: el plugin toma el fallo como una avería de la nube y deja de crear agentes durante `errorDuration` (300 segundos por defecto). El build se queda entre 6 y 8 minutos en *Waiting for next available executor* aunque no haya nada más en marcha.
+- **Al parar un agente**: el contenedor queda huérfano y ocupando un cupo de `JENKINS_MAX_AGENTS` hasta que el vigilante del plugin (`DockerContainerWatchdog`, cada 5 minutos) lo elimina.
+
+Dos cambios lo corrigen:
+
+| Cambio | Dónde | Efecto |
+|---|---|---|
+| `timeout http-keep-alive 1h` | `stacks/devops/jenkins/socket-proxy/haproxy.cfg.template`, montado sobre la plantilla de la imagen | HAProxy ya no cierra las conexiones que el plugin tiene guardadas |
+| `errorDuration: 15` | nube `docker` en `casc/jenkins.yaml` | Si aun así falla una creación, se reintenta a los 15 segundos y no a los 5 minutos |
+
+La plantilla de HAProxy es una copia de la de la imagen con esa única línea cambiada: al subir `SOCKET_PROXY_VERSION` hay que volver a copiarla de la imagen nueva (la cabecera del archivo indica cómo). Se aplica con `./mercury up jenkins` (recrea `socket-proxy`) y `./mercury restart jenkins` (relee `casc/`).
+
+Para comprobarlo: `./mercury logs jenkins | grep -E "Exception while provisioning|Failed to stop container|orphaned"` no debe mostrar líneas nuevas después de un build.
+
 ## Configuración como código
 
 Jenkins carga todos los YAML de `stacks/devops/jenkins/casc/`:
