@@ -93,7 +93,8 @@ flowchart TB
 - Cada escáner lleva `--memory 1536m` (`MERCURY_SCAN_MEMORY`): corre fuera del límite del agente y, sin tope propio, dos builds simultáneos podrían agotar la RAM.
 - Semgrep se ejecuta con el mismo UID que el agente, para que git reconozca el repo y el informe quede con su dueño.
 - `trivy-image` no monta el *workspace*: se conecta a `mercury-jenkins` y lee la imagen a través de `socket-proxy`.
-- La base de datos de Trivy vive en el volumen `mercury-trivy-cache`, compartido entre builds. Es el único volumen con nombre del proyecto.
+- La base de datos de Trivy vive en el volumen `mercury-trivy-cache`, compartido entre builds.
+- `trivy-fs` monta además `mercury-cache-maven` en `/root/.m2/repository`, en solo lectura, y usa `--offline-scan`: para un `pom.xml` Trivy resuelve los POM padre y las dependencias transitivas, y sin repositorio local los pediría uno a uno a Maven Central, que responde `429` y bloquea la IP media hora (también a los builds). Con la caché que llenó `mvn verify` no necesita salir. Lo que no esté en la caché no se analiza.
 
 ### Modo informativo y modo estricto
 
@@ -172,7 +173,7 @@ El `timeout` va en el stage y no en el pipeline entero, para no cortar la espera
 | Plantilla | Agente | Build y test | Análisis SonarQube | Qué se empaqueta | Runtime |
 |---|---|---|---|---|---|
 | `dotnet/Jenkinsfile` | `dotnet` | `dotnet restore`, `build`, `test` | `dotnet sonarscanner begin` … `end`, que envuelve la compilación | `publish/` (de `dotnet publish`) | `dotnet` |
-| `spring/Jenkinsfile` | `maven` | `mvn -B verify` | `mvn sonar:sonar` (necesita Java 17 o superior) | `release/` con el único `.jar` | `spring` |
+| `spring/Jenkinsfile` | `maven` | `mvn -B verify` | `mvn org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar` (necesita Java 17 o superior; el atajo `sonar:sonar` ya no se resuelve) | `release/` con el único `.jar` | `spring` |
 | `flask/Jenkinsfile` | `python` | `venv`, `pip install`, `pytest` | `mercury-ci sonar` | `.` (el código) | `flask` |
 | `node/Jenkinsfile` | `node` | `npm ci`, `build` y `test` si existen | `mercury-ci sonar` | `.` (el código) | `node` |
 | `spa/Jenkinsfile.angular` | `node` | `npm ci`, `npm run build` | `mercury-ci sonar` | `DIST_DIR` | `spa` |

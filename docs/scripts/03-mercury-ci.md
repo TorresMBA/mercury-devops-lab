@@ -86,6 +86,8 @@ Todas siguen el patrón `NOMBRE="${VARIABLE_DE_ENTORNO:-valor por defecto}"`: un
 
 `trivy_retry` existe porque todos los builds comparten el volumen `mercury-trivy-cache` con la base de datos de Trivy: si dos la actualizan a la vez, uno falla.
 
+`trivy-fs` añade a `in_workspace` el volumen `mercury-cache-maven` en `/root/.m2/repository` (solo lectura) y la opción `--offline-scan`. Trivy corre como root y busca el repositorio de Maven en su propio `HOME`, no en el del agente; sin él resolvería cada POM contra Maven Central, que corta con `429 Too Many Requests` y bloquea la IP durante media hora. El volumen ya existe cuando se ejecuta, porque todo agente lo monta al arrancar.
+
 ### El paso `package`, por partes
 
 Es la rama más larga. Hace cuatro cosas en orden:

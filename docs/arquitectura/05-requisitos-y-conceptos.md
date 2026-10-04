@@ -94,6 +94,7 @@ Herramientas que no son servicios permanentes: se lanzan durante un build y desa
 | Trivy | `aquasec/trivy` | `0.75.0` | Dependencias vulnerables, secretos, mala configuración e imagen final | `pipelines/lib/mercury-ci` |
 | Semgrep | `semgrep/semgrep` | `1.178.0` | Análisis estático de seguridad del código (SAST) | `pipelines/lib/mercury-ci` |
 | sonar-scanner | `sonarsource/sonar-scanner-cli` | `12.2` | Envía el análisis a SonarQube (lenguajes sin escáner propio) | `pipelines/lib/mercury-ci` |
+| Escáner de SonarQube para Maven | plugin `org.sonarsource.scanner.maven:sonar-maven-plugin` | `5.8.0.7211` | Análisis de proyectos Maven desde el propio build | `apps/_templates/spring/Jenkinsfile` |
 | restic | paquete de Ubuntu | la del repositorio | Backups cifrados y deduplicados | `host/01-base.sh` |
 
 Los plugins de Jenkins (`stacks/devops/jenkins/plugins.txt`) no llevan versión fija: se instala la última compatible en el momento de construir la imagen del controller.

@@ -132,7 +132,12 @@ case "$step" in
     ;;
 
   trivy-fs)
-    trivy_retry in_workspace -v mercury-trivy-cache:/root/.cache "$TRIVY_IMAGE" fs \
+    # Para un pom.xml, Trivy resuelve los POM padre y las dependencias transitivas. Sin
+    # repositorio local los pide uno a uno a Maven Central, que responde 429 y bloquea la
+    # IP media hora (también a los builds). Se le da, en solo lectura, la caché que llenó
+    # `mvn verify` y con --offline-scan no sale a buscar lo que falte.
+    trivy_retry in_workspace -v mercury-trivy-cache:/root/.cache \
+      -v mercury-cache-maven:/root/.m2/repository:ro "$TRIVY_IMAGE" fs --offline-scan \
       --scanners vuln,secret,misconfig --severity "$SEVERITY" --exit-code "$(trivy_exit_code)" .
     : > "$TRIVY_DB_MARK"
     ;;

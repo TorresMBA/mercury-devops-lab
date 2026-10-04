@@ -65,7 +65,7 @@ La imagen de la app sigue al agente: un build en `dotnet-8.0` se empaqueta sobre
 ./mercury agents dotnet:8.0     # llega un proyecto en .NET 8: se construye y publica solo ese agente
 ```
 
-Tarda unos minutos la primera vez. Si un Jenkinsfile pide una versión sin publicar, el build se queda esperando agente hasta que la publiques; no hay que reiniciar Jenkins.
+Tarda unos minutos la primera vez. Si un Jenkinsfile pide una versión sin publicar, el build se queda esperando agente hasta que la publiques; no hay que reiniciar Jenkins. La espera no es indefinida: cuenta dentro del `timeout` de 45 minutos del stage *CI*.
 
 Con `maven-8` y `maven-11`, el análisis de SonarQube no puede usar el plugin de Maven (exige Java 17 o superior): la plantilla `spring/Jenkinsfile` trae comentada la línea alternativa.
 
@@ -183,6 +183,8 @@ Si algo falla:
 | `MSB1009` o "Project file does not exist" en *Imagen* | `PROJECT` no coincide con la ruta del `.csproj` |
 | `dotnet publish` falla en *Imagen* porque no encuentra los binarios compilados | `PROJECT` no está incluido en `SOLUTION`: la plantilla publica con `--no-build` lo que compiló la solución |
 | El build se aborta a los 45 minutos | Límite del stage *CI*: súbelo en el `timeout` del Jenkinsfile |
+| `No plugin found for prefix 'sonar'` en *SonarQube*, seguido de `Unable to locate 'report-task.txt'` | El Jenkinsfile llama a `mvn sonar:sonar`: Maven ya no resuelve ese atajo. Usa las coordenadas completas de la plantilla (`org.sonarsource.scanner.maven:sonar-maven-plugin:<versión>:sonar`). El segundo aviso solo indica que el escáner no llegó a ejecutarse |
+| *Seguridad* falla con `remote Maven repository returned 429 Too Many Requests` | Trivy pidió los POM a Maven Central en lugar de leerlos de la caché. Actualiza los agentes (`./mercury agents`) y espera a que pase el bloqueo de la IP, unos 30 minutos |
 | *Quality gate* se agota a los 10 minutos | Falta el webhook de SonarQube hacia `http://jenkins:8080/sonarqube-webhook/` |
 | *Deploy dev* falla tras 120 segundos | El contenedor no arranca: `docker logs mi-api-dev`. Suele faltar configuración en `/srv/mercury/apps/dev/mi-api.env` |
 

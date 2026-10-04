@@ -38,7 +38,9 @@ pipeline {
             withSonarQubeEnv('sonarqube') {
               // El escáner de Maven necesita Java 17 o superior. Con maven-8 o maven-11 sustituye la línea por:
               //   sh 'mercury-ci sonar "$APP" -Dsonar.sources=src/main -Dsonar.java.binaries=target/classes'
-              sh 'mvn -B sonar:sonar -Dsonar.projectKey="$APP" -Dsonar.token="$SONAR_AUTH_TOKEN"'
+              // Coordenadas completas y versión fijada: el atajo sonar:sonar ya no se resuelve,
+              // porque el plugin no está en los grupos donde Maven busca prefijos.
+              sh 'mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:5.8.0.7211:sonar -Dsonar.projectKey="$APP" -Dsonar.token="$SONAR_AUTH_TOKEN"'
             }
           }
         }

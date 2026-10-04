@@ -184,7 +184,7 @@ Qué fija cada parámetro, todos en el ancla `x-agent` o `x-agent-base` de `casc
 
 **`javaExe`.** El proceso del agente de Jenkins necesita un Java reciente. En las imágenes `maven-8` y `maven-11` el JDK del `PATH` es el del proyecto, demasiado antiguo para él. Por eso el agente arranca siempre con el Java de la imagen base (`/opt/java/openjdk`) y el JDK del proyecto se instala aparte, en `/opt/jdk`.
 
-**Si la imagen no está publicada**, el build se queda en *Waiting for next available executor* hasta que se publique. No hay que reiniciar Jenkins.
+**Si la imagen no está publicada**, el build se queda en *Waiting for next available executor* hasta que se publique. No hay que reiniciar Jenkins. La espera cuenta dentro del `timeout` del stage *CI* de las plantillas (45 minutos), que la corta si nadie publica la imagen.
 
 ### Cachés de dependencias
 
