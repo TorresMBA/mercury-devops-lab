@@ -114,9 +114,14 @@ El *quality gate* de SonarQube es independiente: siempre detiene el pipeline si 
 flowchart TB
   subgraph a1["Agente del lenguaje"]
     s1["Build y test"] --> s2["SonarQube"]
-    s2 --> s3["Quality gate"]
-    s3 --> s4["Seguridad<br/>semgrep, trivy-fs"]
-    s4 --> s5["Imagen<br/>login, package, trivy-image"]
+    subgraph par["Análisis · en paralelo"]
+      s3["Quality gate<br/>espera hasta 10 min"]
+      s4["Seguridad<br/>semgrep, trivy-fs"]
+    end
+    s2 --> s3
+    s2 --> s4
+    s3 --> s5["Imagen<br/>login, package, trivy-image"]
+    s4 --> s5
     s5 --> s6["Deploy dev"]
   end
   s6 --> s7["Aprobar prod<br/>sin agente, hasta 24 h"]
@@ -131,6 +136,36 @@ flowchart TB
 Las plantillas declaran `agent none` en el pipeline y asignan agente por etapa. Así la espera de aprobación no ocupa memoria ni un cupo de agente. *Deploy prod* usa el agente `base`, el más ligero, y `skipDefaultCheckout()`: no necesita el código, solo desplegar una imagen que ya existe.
 
 **Prod recibe la misma imagen que se probó en dev.** No se reconstruye: `mercury-ci deploy "$APP" prod "$TAG"` usa el mismo `TAG`.
+
+### Qué hace que un build sea rápido
+
+| Mecanismo | Qué evita | Dónde |
+|---|---|---|
+| Cachés de dependencias en volúmenes | Descargar NuGet, Maven, npm y pip en cada build | `mounts` del ancla `x-agent-base`; ver [08-jenkins-y-agentes.md](08-jenkins-y-agentes.md#cachés-de-dependencias) |
+| *Quality gate* y *Seguridad* en paralelo | Tener el agente ocioso mientras SonarQube procesa el análisis | Stage `Análisis` con `parallel` en cada plantilla |
+| `dotnet publish --no-build` | Compilar dos veces | `dotnet/Jenkinsfile` |
+| Caché de BuildKit (`RUN --mount=type=cache`) | Descargar de nuevo todas las dependencias al cambiar `requirements.txt` o `package*.json` | Dockerfile de `flask` y de `node` |
+| Una sola actualización de la base de datos de Trivy | Comprobarla dos veces en el mismo build | `mercury-ci` |
+
+Detalles:
+
+- **El paralelo no sube el pico de memoria.** La rama *Quality gate* solo espera un webhook; los dos escáneres de *Seguridad* siguen ejecutándose uno tras otro. Con `failFast true`, si el *quality gate* falla se cancela la otra rama.
+- **`--no-build` exige que `PROJECT` forme parte de `SOLUTION`**: publica lo que compiló `dotnet build "$SOLUTION"`. Si el proyecto web no está en la solución, `publish` falla porque no encuentra los binarios.
+- **Trivy.** `trivy-fs`, cuando termina bien, deja un marcador en `/tmp` del agente. `trivy-image`, si lo encuentra, añade `--skip-db-update`. En el canal manual no hay `trivy-fs` previo, no existe el marcador y la base se actualiza con normalidad.
+- **La caché de BuildKit no está en la imagen**, sino en la caché de build del host, que tiene un tope de 10 GB (`builder.gc` en `daemon.json`).
+
+### Límites de tiempo e informes
+
+| Qué | Valor | Motivo |
+|---|---|---|
+| `timeout` del stage *CI* | 45 minutos | Un build colgado no debe ocupar un cupo de agente indefinidamente |
+| `timeout` de *Quality gate* | 10 minutos | Si falta el webhook de SonarQube, la espera no termina sola |
+| `timeout` de *Aprobar prod* | 1 día | Tras ese plazo, la promoción se descarta |
+| `timeout` de *Deploy prod* | 10 minutos | |
+| `timeout` de `manual-release` | 30 minutos | |
+| `archiveArtifacts 'semgrep.json'` | Siempre, al terminar *CI* | El agente es efímero: sin esto el informe de Semgrep se pierde. Queda en la página del build |
+
+El `timeout` va en el stage y no en el pipeline entero, para no cortar la espera de aprobación.
 
 ### Qué cambia entre lenguajes
 

@@ -21,6 +21,7 @@ El script asume cosas que solo son ciertas dentro de un agente:
 | `hostname` devuelve el ID del contenedor | Docker, por defecto |
 | Las plantillas están en `/opt/mercury/templates` | `COPY` del Dockerfile de la base |
 | `/inbox` y `/srv/mercury/apps` existen | `mounts` del ancla `x-agent-base` |
+| `/tmp` es propio de este agente y dura lo que él | Docker: es parte del contenedor |
 | El usuario es `jenkins` (UID 1000) | Imagen base |
 | `REGISTRY_USR` y `REGISTRY_PSW` | `REGISTRY = credentials('registry')` en el Jenkinsfile |
 | `SONAR_HOST_URL` y `SONAR_AUTH_TOKEN` | `withSonarQubeEnv('sonarqube')` en el Jenkinsfile |
@@ -61,6 +62,9 @@ Todas siguen el patrón `NOMBRE="${VARIABLE_DE_ENTORNO:-valor por defecto}"`: un
 | `STRICT` | `MERCURY_SCAN_STRICT` | `0` |
 | `SEVERITY` | `MERCURY_SCAN_SEVERITY` | `HIGH,CRITICAL` |
 | `SCAN_MEMORY` | `MERCURY_SCAN_MEMORY` | `1536m` |
+| `TRIVY_DB_MARK` | `MERCURY_TRIVY_DB_MARK` | `/tmp/mercury-trivy-db-al-dia` |
+
+`TRIVY_DB_MARK` es un archivo vacío que `trivy-fs` crea al terminar bien. `trivy-image` comprueba si existe y, en ese caso, añade `--skip-db-update`: la base de datos se actualiza una sola vez por build. Está en `/tmp` y no en el *workspace* porque el *workspace* puede ser el contexto de `docker build` (en `flask` y `node` lo es) y el archivo acabaría dentro de la imagen. Como `/tmp` es del contenedor del agente, el marcador desaparece con él: en el canal manual y en *Deploy prod*, que usan otro agente, no existe.
 
 `APPS_DIR` se exporta porque no la usa el script, sino `compose.deploy.yaml`, que la recibe del entorno.
 
@@ -248,6 +252,8 @@ Casos que merece la pena repetir tras tocar `package`:
 | Dockerfile del proyecto | Un `Dockerfile` en el directorio de contexto | `del proyecto, en <dir>` |
 | Forzar la plantilla | `MERCURY_DOCKERFILE=template` | `plantilla del runtime` |
 | Nombre de app inválido | `package dotnet docs Mi_Api 1` | Error y código 1 |
+| Trivy sin `trivy-fs` previo | `trivy-image <imagen>`, con `DOCKER_HOST` definida | Sin `--skip-db-update` |
+| Trivy tras `trivy-fs` | `trivy-fs` y después `trivy-image <imagen>` (con `MERCURY_TRIVY_DB_MARK` apuntando a un archivo temporal) | Con `--skip-db-update` |
 | Runtime desconocido | `package cobol docs mi-api 1` | `runtime desconocido` |
 
 Lo que esta prueba no cubre: que la imagen se construya, que el escáner encuentre el código o que `socket-proxy` permita la operación. Eso solo se comprueba con un build real, tras `./mercury agents`.

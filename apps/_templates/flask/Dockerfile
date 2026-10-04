@@ -11,7 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 # Las dependencias van primero: la capa se reutiliza mientras no cambie requirements.txt
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt gunicorn
+# La caché de pip vive en la caché de build del host, no en la imagen
+RUN --mount=type=cache,target=/root/.cache/pip pip install -r requirements.txt gunicorn
 COPY . .
 
 EXPOSE 8080

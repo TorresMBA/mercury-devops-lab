@@ -10,6 +10,8 @@ pipeline {
   // El lock de "Desplegar" evita dos despliegues simultáneos de la misma app y ambiente.
   options {
     timestamps()
+    // Un build colgado no debe ocupar un cupo de agente indefinidamente
+    timeout(time: 30, unit: 'MINUTES')
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 

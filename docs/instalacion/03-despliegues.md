@@ -82,12 +82,15 @@ Etapas del pipeline:
 | Etapa | Qué hace |
 |---|---|
 | Build y test | Compila y ejecuta los tests dentro del agente del lenguaje |
-| SonarQube + Quality gate | Analiza el código; si no pasa el *quality gate*, el pipeline se detiene |
-| Seguridad | Semgrep (fallos de seguridad en el código) y Trivy (dependencias vulnerables, secretos, configuración) |
+| SonarQube | Envía el análisis del código |
+| Análisis: Quality gate | Espera el veredicto de SonarQube; si no pasa el *quality gate*, el pipeline se detiene |
+| Análisis: Seguridad | A la vez que la anterior: Semgrep (fallos de seguridad en el código) y Trivy (dependencias vulnerables, secretos, configuración). El informe `semgrep.json` queda archivado en el build |
 | Imagen | Empaqueta el compilado con el `Dockerfile` del proyecto si lo tiene, o con la plantilla; publica la imagen y la escanea con Trivy |
 | Deploy dev | Despliega en dev automáticamente |
 | Aprobar prod | Espera una confirmación manual (hasta 24 h), sin ocupar ningún agente. Un push nuevo cancela el build que estaba esperando |
 | Deploy prod | Despliega **la misma imagen** que se probó en dev |
+
+Las dependencias (NuGet, Maven, npm, pip) se guardan en una caché compartida entre builds: el primer build de un proyecto las descarga y los siguientes las reutilizan. El stage *CI* se aborta si supera los 45 minutos; para un proyecto que necesite más, cambia ese `timeout` en su Jenkinsfile.
 
 Por defecto los escáneres de seguridad informan pero no rompen el build. Para que los hallazgos de severidad alta o crítica lo detengan, añade al `environment` del Jenkinsfile: `MERCURY_SCAN_STRICT = '1'`.
 
@@ -156,7 +159,7 @@ Antes de empezar, comprueba que:
    ```groovy
    APP = 'mi-api'                       // será el nombre de la imagen, del contenedor y del proyecto en SonarQube
    SOLUTION = 'MiApi.slnx'              // solución que se compila y se prueba (.slnx o .sln), relativa a la raíz del repo
-   PROJECT = 'src/MiApi/MiApi.csproj'   // ruta del proyecto web, relativa a la raíz del repo
+   PROJECT = 'src/MiApi/MiApi.csproj'   // ruta del proyecto web, relativa a la raíz del repo; debe estar incluido en SOLUTION
    ```
    Súbelo a la rama `main`.
 2. **En Jenkins**, entra en la carpeta `dotnet` > *Nueva tarea*. Nombre: el de la app. Tipo: *Pipeline*.
@@ -178,6 +181,8 @@ Si algo falla:
 | "You must install or update .NET to run this application" en los tests o en `docker logs mi-api-dev` | El proyecto apunta a una versión distinta de la del agente: cambia la etiqueta del Jenkinsfile a la de su `TargetFramework` |
 | `MSB1009` o "Project file does not exist" en *Build, test y SonarQube* | `SOLUTION` no coincide con la ruta del `.slnx` o `.sln` |
 | `MSB1009` o "Project file does not exist" en *Imagen* | `PROJECT` no coincide con la ruta del `.csproj` |
+| `dotnet publish` falla en *Imagen* porque no encuentra los binarios compilados | `PROJECT` no está incluido en `SOLUTION`: la plantilla publica con `--no-build` lo que compiló la solución |
+| El build se aborta a los 45 minutos | Límite del stage *CI*: súbelo en el `timeout` del Jenkinsfile |
 | *Quality gate* se agota a los 10 minutos | Falta el webhook de SonarQube hacia `http://jenkins:8080/sonarqube-webhook/` |
 | *Deploy dev* falla tras 120 segundos | El contenedor no arranca: `docker logs mi-api-dev`. Suele faltar configuración en `/srv/mercury/apps/dev/mi-api.env` |
 

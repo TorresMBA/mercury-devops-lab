@@ -21,6 +21,10 @@ pipeline {
       // 'dotnet' es la versión por defecto. Para fijar otra: 'dotnet-8.0', 'dotnet-9.0' o 'dotnet-10.0'.
       // La imagen de la app se empaqueta con la misma versión que el agente.
       agent { label 'dotnet' }
+      options {
+        // Un build colgado no debe ocupar un cupo de agente indefinidamente
+        timeout(time: 45, unit: 'MINUTES')
+      }
       environment {
         REGISTRY = credentials('registry')
       }
@@ -40,27 +44,34 @@ pipeline {
           }
         }
 
-        stage('Quality gate') {
-          steps {
-            timeout(time: 10, unit: 'MINUTES') {
-              waitForQualityGate abortPipeline: true
+        // La espera del quality gate no consume recursos: los escáneres corren mientras tanto
+        stage('Análisis') {
+          failFast true
+          parallel {
+            stage('Quality gate') {
+              steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                  waitForQualityGate abortPipeline: true
+                }
+              }
             }
-          }
-        }
 
-        stage('Seguridad') {
-          steps {
-            sh '''
-              mercury-ci semgrep
-              mercury-ci trivy-fs
-            '''
+            stage('Seguridad') {
+              steps {
+                sh '''
+                  mercury-ci semgrep
+                  mercury-ci trivy-fs
+                '''
+              }
+            }
           }
         }
 
         stage('Imagen') {
           steps {
             sh '''
-              dotnet publish "$PROJECT" -c Release -o publish
+              # --no-build: reutiliza lo compilado arriba. PROJECT debe formar parte de SOLUTION
+              dotnet publish "$PROJECT" -c Release --no-build -o publish
               mercury-ci login
               mercury-ci package dotnet publish "$APP" "$TAG"
               mercury-ci trivy-image "$(mercury-ci image-ref "$APP" "$TAG")"
@@ -72,6 +83,12 @@ pipeline {
           steps {
             sh 'mercury-ci deploy "$APP" dev "$TAG"'
           }
+        }
+      }
+      post {
+        always {
+          // El agente es efímero: sin esto el informe de Semgrep se pierde
+          archiveArtifacts artifacts: 'semgrep.json', allowEmptyArchive: true
         }
       }
     }
@@ -90,7 +107,10 @@ pipeline {
       environment {
         REGISTRY = credentials('registry')
       }
-      options { skipDefaultCheckout() }
+      options {
+        skipDefaultCheckout()
+        timeout(time: 10, unit: 'MINUTES')
+      }
       steps {
         sh '''
           mercury-ci login

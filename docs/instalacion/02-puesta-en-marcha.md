@@ -270,11 +270,12 @@ bash stacks/monitoring/grafana/fetch-dashboards.sh       # dashboards de la comu
 - *Explore > Loki*: la consulta `{stack="jenkins"}` devuelve los logs de Jenkins.
 - Prometheus no se publica. Para ver sus *targets*: `docker exec prometheus wget -qO- localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health}'`. Todos deben estar `up`.
 
-## Fase 7. Backups y Portainer
+## Fase 7. Backups, limpieza y Portainer
 
 ```bash
 sudo bash host/05-backup.sh          # repositorio restic en el HDD + timer diario
 ./mercury backup                     # primera copia
+sudo bash host/07-cleanup.sh         # limpieza semanal de disco (./mercury prune)
 
 cp stacks/core/management/.env.example stacks/core/management/.env
 ./mercury up management              # opcional

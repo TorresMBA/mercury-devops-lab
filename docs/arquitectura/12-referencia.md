@@ -58,6 +58,11 @@ Lee el `.env` de Jenkins (`AGENT_VERSION`). Detalle en [08-jenkins-y-agentes.md]
 | `registry-user <usuario>` | Crea o actualiza un usuario en el `htpasswd` (pide contraseña) |
 | `registry-gc` | Libera el espacio de las capas sin etiqueta |
 | `backup` | Ejecuta `host/backup.sh` ahora. Requiere haber ejecutado `host/05-backup.sh` |
+| `prune` | Libera disco del host: imágenes sin etiqueta, copias locales de imágenes de apps que no usa ningún contenedor, etiquetas fijas de agentes, caché de build de más de 7 días. Muestra `docker system df` antes y después |
+| `prune --all` | Además, toda imagen sin contenedor, incluidas las de stacks detenidos |
+| `prune --caches` | Además, borra los volúmenes `mercury-cache-*` y `mercury-trivy-cache` |
+
+Detalle de `prune` en [10-registry-e-imagenes.md](10-registry-e-imagenes.md#limpieza-del-host).
 
 ## `mercury-ci`
 
@@ -176,6 +181,7 @@ Todos se ejecutan con `sudo`, cargan `host/_common.sh` y leen el `.env` raíz. S
 | `04-networks.sh` | Instalación, y tras añadir una red compartida | Crea `net-tools`, `net-apps-dev`, `net-apps-prod` y `net-obs` (interna) si no existen |
 | `05-backup.sh` | Tras levantar los stacks | Contraseña y repositorio restic; servicio y timer de systemd (03:30) |
 | `06-dns.sh` | Tras `./mercury up dns` | Comprueba que AdGuard responde; drop-in de systemd-resolved; añade `dns` a `daemon.json` y reinicia Docker |
+| `07-cleanup.sh` | Tras levantar los stacks | Servicio y timer de systemd que ejecutan `./mercury prune` cada domingo a las 04:30 |
 | `backup.sh` | Lo llama el timer o `./mercury backup` | Volcado de SonarQube, `restic backup`, retención |
 | `migrate-layout.sh` | Una vez, sin `sudo`, al migrar desde la estructura antigua | Mueve los `.env` de `stacks/<stack>` a `stacks/<grupo>/<stack>` |
 
@@ -191,7 +197,8 @@ Constantes de `host/_common.sh`:
 Comportamientos que conviene conocer:
 
 - **`01-base.sh` solo desactiva el acceso por contraseña si el operador tiene llaves** en `authorized_keys`. Si no, avisa y lo mantiene, para no dejar el servidor inaccesible.
-- **`install_daemon_json`** guarda una copia del `daemon.json` anterior junto al original antes de reemplazarlo, y solo reinicia Docker si el archivo cambió.
+- **`install_daemon_json`** valida el archivo generado con `dockerd --validate` antes de instalarlo (un `daemon.json` inválido impide arrancar Docker), guarda una copia del anterior junto al original y solo reinicia Docker si el archivo cambió.
+- **`builder.gc`** en `daemon.json` limita la caché de build a 10 GB.
 - **`live-restore`** en `daemon.json` mantiene los contenedores en marcha mientras se reinicia el daemon.
 
 ### Archivos que escriben en el sistema
@@ -203,7 +210,8 @@ Comportamientos que conviene conocer:
 | `/swapfile-mercury` y línea en `/etc/fstab` | `01-base.sh` | Swap adicional |
 | `/etc/ssh/sshd_config.d/10-mercury.conf` | `01-base.sh` | Sin root, sin contraseña, bloque SFTP |
 | Línea del HDD en `/etc/fstab` | `02-disks.sh` | Montaje por UUID |
-| `/etc/docker/daemon.json` | `03-docker.sh`, `06-dns.sh` | Rotación de logs, `live-restore`, rango de redes, métricas, DNS |
+| `/etc/docker/daemon.json` | `03-docker.sh`, `06-dns.sh` | Rotación de logs, `live-restore`, rango de redes, métricas, tope de la caché de build, DNS |
+| `/etc/systemd/system/mercury-prune.{service,timer}` | `07-cleanup.sh` | Limpieza semanal de disco |
 | `/etc/systemd/resolved.conf.d/mercury.conf` | `06-dns.sh` | Dominio de enrutamiento hacia AdGuard |
 | `/etc/systemd/system/mercury-backup.{service,timer}` | `05-backup.sh` | Backup diario |
 | `/root/.mercury-restic-password` | `05-backup.sh` | Contraseña del repositorio de backups |
@@ -221,4 +229,6 @@ Comportamientos que conviene conocer:
 | Agentes | `/usr/local/bin/mercury-ci` | `pipelines/lib/mercury-ci`, copiado al construir la base |
 | Agentes | `/opt/mercury/templates` | `apps/_templates`, copiado al construir la base |
 | Agentes | `/opt/java/openjdk` | Java de la imagen base: lo usa el proceso del agente |
+| Agentes | `/home/jenkins/.nuget/packages`, `.m2/repository`, `.npm`, `.cache/pip` | Volúmenes `mercury-cache-*`, compartidos entre builds |
+| Agentes | `/tmp/mercury-trivy-db-al-dia` | Marcador que deja `trivy-fs` para que `trivy-image` no actualice de nuevo la base de datos |
 | Agentes `maven` | `/opt/jdk` | JDK del proyecto |

@@ -143,6 +143,29 @@ Tres detalles con consecuencias:
 
 `published` necesita una sesión iniciada en el registry desde el host (`docker login`). Sin ella, `agents list` muestra todo como no publicado y `./mercury agents` sin argumentos no reconstruye ningún agente.
 
+## El comando `prune` por dentro
+
+Libera disco del Docker del host. Qué borra y por qué es seguro está en [10-registry-e-imagenes.md](../arquitectura/10-registry-e-imagenes.md#limpieza-del-host); aquí, cómo decide.
+
+Recorre `docker image ls` y clasifica cada `repositorio:etiqueta` con un `case`:
+
+| Imagen | Decisión |
+|---|---|
+| Etiqueta `<none>` | Se salta: ya la cubre `docker image prune -f` |
+| `<REGISTRY_HOST>/apps/*` | Candidata a borrar |
+| `<REGISTRY_HOST>/agents/base:current` | Se conserva |
+| `<REGISTRY_HOST>/agents/<agente>:<etiqueta>` con `<agente>:<etiqueta>` en `AGENTS` | Se conserva: es la etiqueta de versión que usa Jenkins |
+| Otra `<REGISTRY_HOST>/agents/*` | Candidata a borrar: es una etiqueta fija con commit |
+| Cualquier otra | Se salta: imagen de terceros |
+
+Las candidatas se borran con `docker rmi` **sin `-f`**. Es Docker quien protege lo que está en uso: se niega a borrar una imagen que usa un contenedor, y el script lo muestra como `en uso`.
+
+Antes del recorrido comprueba si hay algún contenedor en la red `mercury-jenkins` que no sea `jenkins` ni `socket-proxy`, es decir, un agente. Si lo hay, se salta este paso: un build en marcha necesita su imagen recién construida hasta publicarla y escanearla.
+
+Si se añade un tipo nuevo de imagen propia (otro prefijo bajo `REGISTRY_HOST`), hay que decidir aquí si se limpia. Si se añade un volumen de caché que no empiece por `mercury-cache-`, hay que añadirlo a la lista de `--caches`.
+
+Lo ejecuta también el timer `mercury-prune.timer` (`host/07-cleanup.sh`), como root y sin opciones.
+
 ## Añadir cosas
 
 ### Un stack

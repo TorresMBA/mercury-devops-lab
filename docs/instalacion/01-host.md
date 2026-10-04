@@ -60,7 +60,7 @@ sudo passwd deployer         # contraseña del usuario del canal manual (SFTP)
 
 Cierra la sesión SSH y vuelve a entrar para que tu usuario pertenezca al grupo `docker`.
 
-Hay dos scripts más que se ejecutan más adelante, cuando lo indique la guía siguiente: `host/06-dns.sh` (tras levantar AdGuard) y `host/05-backup.sh`.
+Hay tres scripts más que se ejecutan más adelante, cuando lo indique la guía siguiente: `host/06-dns.sh` (tras levantar AdGuard), `host/05-backup.sh` y `host/07-cleanup.sh`.
 
 Qué hace cada cosa y por qué:
 
@@ -74,6 +74,7 @@ Qué hace cada cosa y por qué:
 | `daemon.json`: `live-restore` | Los contenedores siguen en marcha mientras se actualiza el daemon de Docker |
 | `daemon.json`: `default-address-pools` | Todas las redes de Docker salen de `10.200.0.0/16`: predecible y sin choques con la LAN |
 | `daemon.json`: `metrics-addr` | Prometheus lee las métricas del propio daemon |
+| `daemon.json`: `builder.gc` | La caché de build no pasa de 10 GB |
 
 > **Docker y UFW.** Los puertos que un contenedor publica con `ports:` no pasan por UFW: Docker escribe sus propias reglas de red. Por eso la protección real es que solo Nginx Proxy Manager, AdGuard y Samba publiquen puertos, y que los puertos de administración se liguen a la IP de la LAN.
 

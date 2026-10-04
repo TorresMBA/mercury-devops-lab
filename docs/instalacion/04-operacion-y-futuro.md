@@ -14,7 +14,7 @@
 | Cambiar pasos de pipeline o plantillas | Edita `pipelines/lib/mercury-ci` o `apps/_templates/`, luego `./mercury agents` (reconstruye la base y los agentes ya publicados) |
 | Publicar un agente para una versión nueva | `./mercury agents <agente>:<versión>`; el catálogo se ve con `./mercury agents list` |
 | Volver a una imagen de agente anterior | `./mercury agents rollback <agente>:<versión> <commit>` |
-| Limpiar imágenes viejas del host | `docker image prune -a --filter "until=168h"` |
+| Liberar disco del host (SSD) | `./mercury prune`. Se ejecuta solo cada domingo si instalaste el timer (`sudo bash host/07-cleanup.sh`). Con `--caches` vacía además las cachés de dependencias; con `--all`, las imágenes de stacks detenidos ([detalle](../arquitectura/10-registry-e-imagenes.md#limpieza-del-host)) |
 | Liberar espacio en el registry | Borra etiquetas desde la interfaz web y ejecuta `./mercury registry-gc` |
 | Backup manual | `./mercury backup` |
 

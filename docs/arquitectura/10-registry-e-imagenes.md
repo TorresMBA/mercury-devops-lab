@@ -116,4 +116,26 @@ Qué conservar:
 - La etiqueta móvil de cada agente en uso y, al menos, la fija anterior, para poder revertir.
 - La etiqueta de app desplegada en cada ambiente y las últimas a las que tendría sentido volver.
 
-Aparte, el host acumula imágenes descargadas y capas de build. Se limpian con `docker image prune -a --filter "until=168h"`.
+## Limpieza del host
+
+El registry (HDD) no es el único sitio donde se acumulan imágenes. El Docker del host (SSD, `/var/lib/docker`) guarda su propia copia de todo lo que construye o descarga:
+
+| Qué se acumula | Por qué | Cómo se limpia |
+|---|---|---|
+| Una imagen `apps/<app>:<n>` por build | `mercury-ci package` construye con `--load` | `./mercury prune` borra las que no usa ningún contenedor |
+| Una etiqueta `agents/<agente>:<versión>-<commit>` por reconstrucción | `./mercury agents` | `./mercury prune` las borra; conserva las de versión y `base:current` |
+| Imágenes sin etiqueta (`<none>`) | Un agente o una base reemplazados por una construcción nueva | `./mercury prune` |
+| Caché de build de BuildKit, incluidas las cachés de `RUN --mount=type=cache` | Cada `docker build` | Tope de 10 GB (`builder.gc` en `daemon.json`) y `./mercury prune` para lo que tenga más de 7 días |
+| Volúmenes `mercury-cache-*` y `mercury-trivy-cache` | Cachés de dependencias y base de datos de Trivy | `./mercury prune --caches` |
+| Imágenes de stacks detenidos o de versiones anteriores | `./mercury down`, actualizaciones | `./mercury prune --all` |
+
+`./mercury prune` es seguro de ejecutar en cualquier momento:
+
+- Borrar la copia local de una imagen de app no pierde nada: está en el registry y un despliegue la vuelve a descargar (`--pull always`).
+- Usa `docker rmi` sin `-f`, que se niega a borrar una imagen que esté usando un contenedor. Lo desplegado y lo que está en marcha no se toca.
+- Si hay un build en marcha (un agente en la red `mercury-jenkins`), omite el borrado de imágenes de apps y agentes: ese build necesita su imagen recién construida hasta publicarla y escanearla.
+- No toca el registry, ni los volúmenes de caché (salvo con `--caches`), ni las imágenes de stacks detenidos (salvo con `--all`).
+
+`host/07-cleanup.sh` programa `./mercury prune` cada domingo a las 04:30 con un timer de systemd. Muestra `docker system df` antes y después; la salida queda en `journalctl -u mercury-prune.service`.
+
+Lo que **no** es automático y sigue siendo manual: las etiquetas del registry (sección anterior) y las cachés de dependencias, que crecen sin límite hasta que se vacían.

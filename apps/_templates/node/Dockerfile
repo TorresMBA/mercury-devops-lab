@@ -9,7 +9,8 @@ ENV NODE_ENV=production \
 WORKDIR /app
 # Las dependencias van primero: la capa se reutiliza mientras no cambien los package*.json
 COPY package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
+# La caché de npm vive en la caché de build del host, no en la imagen
+RUN --mount=type=cache,target=/root/.npm if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
 COPY . .
 
 EXPOSE 8080

@@ -65,7 +65,8 @@ flowchart TB
 | Versión de una imagen de terceros | `./mercury pull <stack> && ./mercury up <stack>` | |
 | Configuración de Prometheus, Loki, Alloy o Grafana (`provisioning/`) | `./mercury restart <stack>` | Archivos montados |
 | `dashboards/*.json` de Grafana | Nada | Grafana los relee cada 60 segundos |
-| `host/files/daemon.json` | `sudo bash host/03-docker.sh` | Regenera `/etc/docker/daemon.json` y reinicia Docker |
+| `host/files/daemon.json` | `sudo bash host/03-docker.sh` | Regenera `/etc/docker/daemon.json`, lo valida y reinicia Docker |
+| `mounts` del ancla `x-agent-base` (cachés de dependencias) | `./mercury agents` y `./mercury restart jenkins` | El directorio de destino debe existir en la imagen base con dueño `jenkins` |
 | `host/*.sh` | `sudo bash host/<script>` | Son idempotentes |
 | `stacks/core/dns/AdGuardHome.yaml.tmpl` | Nada | `dns-init` no sobrescribe una configuración existente |
 | Un Jenkinsfile de `apps/_templates/` | `./mercury agents`, y copiarlo de nuevo a los repos de las apps | Cada app tiene su copia; no se actualiza sola |
@@ -113,6 +114,7 @@ Ejemplo: Go.
    - `FROM ${BASE}`, `USER root` para instalar, y terminar con `USER jenkins`.
    - `ENV RUNTIME_VERSION=${VERSION}`.
    - No sobrescribir `/opt/java/openjdk`: es el Java con el que arranca el agente.
+   - Si el lenguaje tiene una caché de dependencias, añade su volumen `mercury-cache-<herramienta>` a `mounts` en el ancla `x-agent-base` y crea el directorio de destino, con dueño `jenkins`, en el Dockerfile de la base.
 2. `mercury`: entradas `go:<versión>` en `AGENTS` y `[go]=<versión>` en `AGENT_DEFAULT`.
 3. `casc/jenkins.yaml`: una plantilla por versión, con `<<: *agent` y `<<: *agent-base`; la de por defecto lleva además la etiqueta `go`. Elige `memoryLimit` contando con el presupuesto de RAM.
 4. `casc/jenkins.yaml`: una carpeta en el mapa `carpetas`.
@@ -177,6 +179,11 @@ En el servidor ya funcionan `edge`, `registry` y `jenkins`. Lo siguiente está e
 - Los agentes versionados: las anclas `x-` y `<<:` en `casc/jenkins.yaml`, el `javaExe` del agente, `RUNTIME_VERSION` en `mercury-ci package`.
 - El plugin `lockable-resources` en `manual-release`.
 - `disableConcurrentBuilds(abortPrevious: true)` en las plantillas Jenkinsfile.
+- Las cachés de dependencias: la sintaxis `type=volume` en `mounts` del plugin Docker, el dueño de los volúmenes `mercury-cache-*` en su primer uso y `MAVEN_ARGS` con el bloqueo por archivo en builds simultáneos.
+- El stage `Análisis` con `parallel` y `failFast`, los `timeout` por stage y `archiveArtifacts` de `semgrep.json` en las plantillas Jenkinsfile.
+- `dotnet publish --no-build` y las cachés `RUN --mount=type=cache` de los Dockerfile de `flask` y `node`.
+- El marcador de Trivy (`--skip-db-update` en `trivy-image`).
+- `./mercury prune` contra un Docker real, `host/07-cleanup.sh`, el bloque `builder.gc` de `daemon.json` y la validación con `dockerd --validate` en `install_daemon_json`.
 
 La lista se mantiene también en `CLAUDE.md`, en la raíz del repo.
 
@@ -199,6 +206,10 @@ Por dónde empezar según el síntoma. Cada documento enlazado tiene el detalle.
 | `variable is not set` al hacer `config` o `up` | Falta la variable en el `.env` del stack; compárala con su `.env.example` | [12](12-referencia.md#variables) |
 | El servidor va lento o un contenedor se reinicia | Grafana > *Mercury - Resumen*; alertas `MemoriaCasiAgotada` y `ContenedorCercaDelLimite` | [11](11-observabilidad-y-backups.md#alertas) |
 | El HDD se llena | Limpieza del registry; retención de Prometheus y Loki | [10](10-registry-e-imagenes.md#limpieza) |
+| El SSD se llena | `./mercury prune`; si no basta, `--caches` y `--all` | [10](10-registry-e-imagenes.md#limpieza-del-host) |
+| Un build falla al restaurar dependencias con errores de paquete corrupto o de permisos en `~/.nuget`, `~/.m2`, `~/.npm` | Caché dañada o con dueño incorrecto: `./mercury prune --caches` | [08](08-jenkins-y-agentes.md#cachés-de-dependencias) |
+| `dotnet publish` falla en *Imagen* tras compilar bien | `PROJECT` no forma parte de `SOLUTION` (`--no-build`) | [09](09-pipelines-y-despliegue.md#qué-hace-que-un-build-sea-rápido) |
+| Un build se aborta a los 45 minutos | `timeout` del stage *CI*; súbelo en el Jenkinsfile de esa app | [09](09-pipelines-y-despliegue.md#límites-de-tiempo-e-informes) |
 
 ## Mantener esta documentación
 

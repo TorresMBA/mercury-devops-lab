@@ -26,6 +26,10 @@ SCAN_MEMORY="${MERCURY_SCAN_MEMORY:-1536m}"
 
 SELF="$(hostname)" # dentro de un contenedor, el hostname es su ID
 
+# Lo deja trivy-fs cuando termina bien: trivy-image, en el mismo agente, no vuelve a
+# actualizar la base de datos. En /tmp y no en el workspace, que puede ser contexto de build.
+TRIVY_DB_MARK="${MERCURY_TRIVY_DB_MARK:-/tmp/mercury-trivy-db-al-dia}"
+
 die() { echo "mercury-ci: $*" >&2; exit 1; }
 
 usage() {
@@ -126,6 +130,7 @@ case "$step" in
   trivy-fs)
     trivy_retry in_workspace -v mercury-trivy-cache:/root/.cache "$TRIVY_IMAGE" fs \
       --scanners vuln,secret,misconfig --severity "$SEVERITY" --exit-code "$(trivy_exit_code)" .
+    : > "$TRIVY_DB_MARK"
     ;;
 
   package)
@@ -181,8 +186,11 @@ case "$step" in
 
   trivy-image)
     [[ $# -eq 1 ]] || die "uso: trivy-image <imagen>"
+    # En el canal manual no hay trivy-fs previo: no existe el marcador y la base se actualiza
+    db_args=()
+    [[ -f "$TRIVY_DB_MARK" ]] && db_args=(--skip-db-update)
     trivy_retry docker run --rm --memory "$SCAN_MEMORY" --network "$AGENT_NETWORK" -e DOCKER_HOST="${DOCKER_HOST:?}" \
-      -v mercury-trivy-cache:/root/.cache "$TRIVY_IMAGE" image \
+      -v mercury-trivy-cache:/root/.cache "$TRIVY_IMAGE" image "${db_args[@]}" \
       --severity "$SEVERITY" --exit-code "$(trivy_exit_code)" "$1"
     ;;
 

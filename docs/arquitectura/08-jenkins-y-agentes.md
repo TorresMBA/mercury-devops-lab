@@ -179,11 +179,30 @@ Qué fija cada parámetro, todos en el ancla `x-agent` o `x-agent-base` de `casc
 | `network` | `mercury-jenkins` | Para alcanzar `socket-proxy` |
 | `environmentsString` | `DOCKER_HOST`, `REGISTRY_HOST` | Lo que `mercury-ci` necesita |
 | `mounts` | `INBOX_DIR` → `/inbox` y `APPS_DIR` → `/srv/mercury/apps`, ambos solo lectura | Canal manual y lectura de `<app>.env` al desplegar |
+| `mounts` | Cuatro volúmenes `mercury-cache-*` | Cachés de dependencias compartidas entre builds (ver más abajo) |
 | `memoryLimit` = `memorySwap` | 2048, 1536 o 1024 MB | Límite de RAM sin swap adicional |
 
 **`javaExe`.** El proceso del agente de Jenkins necesita un Java reciente. En las imágenes `maven-8` y `maven-11` el JDK del `PATH` es el del proyecto, demasiado antiguo para él. Por eso el agente arranca siempre con el Java de la imagen base (`/opt/java/openjdk`) y el JDK del proyecto se instala aparte, en `/opt/jdk`.
 
 **Si la imagen no está publicada**, el build se queda en *Waiting for next available executor* hasta que se publique. No hay que reiniciar Jenkins.
+
+### Cachés de dependencias
+
+El agente es efímero, pero las dependencias descargadas no: todas las plantillas montan cuatro volúmenes con nombre, de modo que el segundo build de un proyecto no vuelve a descargar lo que ya bajó el primero.
+
+| Volumen | Ruta en el agente | Lo usa |
+|---|---|---|
+| `mercury-cache-nuget` | `/home/jenkins/.nuget/packages` | `dotnet restore` |
+| `mercury-cache-maven` | `/home/jenkins/.m2/repository` | Maven |
+| `mercury-cache-npm` | `/home/jenkins/.npm` | `npm ci`, `npm install` |
+| `mercury-cache-pip` | `/home/jenkins/.cache/pip` | `pip install` |
+
+- **Son volúmenes con nombre, no bind-mounts.** `removeVolumes: true` solo borra los volúmenes anónimos del agente; estos persisten. Viven en `/var/lib/docker/volumes` (SSD) y no entran en el backup.
+- **Los comparten todos los proyectos y todas las versiones de un lenguaje.** Las cuatro herramientas guardan cada paquete por nombre y versión, así que no se pisan.
+- **El dueño lo fija la imagen base.** Su Dockerfile crea los cuatro directorios con dueño `jenkins`; un volumen nuevo hereda el dueño del directorio sobre el que se monta por primera vez. Sin eso nacería como root y el build no podría escribir.
+- **Maven y builds simultáneos.** El repositorio local de Maven no está pensado para escrituras concurrentes. La imagen `maven` define `MAVEN_ARGS=-Daether.syncContext.named.factory=file-lock`, que hace que Maven bloquee por archivo.
+- **Crecen sin límite.** Su tamaño se ve al final de `./mercury prune`; se vacían con `./mercury prune --caches`. El siguiente build de cada proyecto vuelve a descargar.
+- **Una caché corrupta** (descarga interrumpida, paquete a medias) se resuelve igual: `./mercury prune --caches`.
 
 ## Imágenes de agente
 
@@ -223,9 +242,9 @@ Todas las imágenes de lenguaje siguen el mismo patrón multi-etapa: parten de l
 
 | Imagen | Parte de | Añade | Exporta |
 |---|---|---|---|
-| `agents/base` | `jenkins/agent:${AGENT_VERSION}` | `git`, `curl`, `jq`, `unzip`, `docker-ce-cli`, `docker-buildx-plugin`, `docker-compose-plugin`, `/usr/local/bin/mercury-ci`, `/opt/mercury/templates` | — |
+| `agents/base` | `jenkins/agent:${AGENT_VERSION}` | `git`, `curl`, `jq`, `unzip`, `docker-ce-cli`, `docker-buildx-plugin`, `docker-compose-plugin`, `/usr/local/bin/mercury-ci`, `/opt/mercury/templates`, los directorios de las cachés de dependencias | — |
 | `agents/dotnet` | base | `/usr/share/dotnet` del SDK, `libicu-dev`, la herramienta global `dotnet-sonarscanner` | `RUNTIME_VERSION` |
-| `agents/maven` | base | JDK en `/opt/jdk` y Maven en `/usr/share/maven`; `JAVA_HOME=/opt/jdk` y el JDK primero en el `PATH` | `RUNTIME_VERSION` |
+| `agents/maven` | base | JDK en `/opt/jdk` y Maven en `/usr/share/maven`; `JAVA_HOME=/opt/jdk` y el JDK primero en el `PATH` | `RUNTIME_VERSION`, `MAVEN_ARGS` |
 | `agents/node` | base | `node`, `npm` y `npx` en `/usr/local` | `RUNTIME_VERSION` |
 | `agents/python` | base | El intérprete oficial en `/usr/local`; el `python3` de Debian solo aporta las librerías del sistema | `RUNTIME_VERSION` |
 
@@ -331,4 +350,6 @@ Cada reconstrucción deja una etiqueta fija más en el registry. La limpieza est
 | Job de una app | Un solo build; uno nuevo cancela al anterior, también si esperaba aprobación | `disableConcurrentBuilds(abortPrevious: true)` en cada plantilla Jenkinsfile |
 | `manual-release` | Varias ejecuciones a la vez; se serializan solo los despliegues de la misma app y ambiente | `lock("deploy-<app>-<env>")` |
 | Aprobación de prod | La espera no ocupa agente ni memoria | Etapa con `agent none` |
+| Build colgado | Se aborta a los 45 minutos (stage *CI*), 10 (*Deploy prod*) o 30 (`manual-release`) y libera su cupo de agente | `timeout` en las plantillas |
+| Cachés de dependencias | Compartidas entre builds simultáneos | Volúmenes `mercury-cache-*` |
 | Trivy | Si dos builds actualizan su base de datos a la vez, uno falla y se reintenta hasta 3 veces | `trivy_retry` en `mercury-ci` |

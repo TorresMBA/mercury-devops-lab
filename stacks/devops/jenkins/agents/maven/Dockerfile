@@ -16,9 +16,12 @@ RUN ln -s /usr/share/maven/bin/mvn /usr/bin/mvn
 # arranca con el Java de la imagen base (javaExe en casc/jenkins.yaml), que con
 # Java 8 u 11 no podría ejecutarse.
 # RUNTIME_VERSION: mercury-ci package empaqueta la app sobre la misma versión
+# MAVEN_ARGS: el repositorio local (~/.m2/repository) es un volumen compartido entre
+# builds; el bloqueo por archivo evita que dos builds simultáneos lo corrompan
 ENV RUNTIME_VERSION=${VERSION} \
     JAVA_HOME=/opt/jdk \
     MAVEN_HOME=/usr/share/maven \
+    MAVEN_ARGS="-Daether.syncContext.named.factory=file-lock" \
     PATH="/opt/jdk/bin:${PATH}"
 
 USER jenkins

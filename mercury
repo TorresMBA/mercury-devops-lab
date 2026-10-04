@@ -77,6 +77,11 @@ Registry:
 
 Operación:
   backup                Ejecuta el backup ahora (requiere host/05-backup.sh)
+  prune [--all] [--caches]
+                        Libera disco del host: imágenes sin etiqueta, copias locales de
+                        imágenes de apps y de agentes antiguos, caché de build
+                        --all     además, toda imagen sin contenedor (stacks detenidos)
+                        --caches  además, vacía las cachés de dependencias y de Trivy
 EOF
 }
 
@@ -412,6 +417,81 @@ case "$cmd" in
 
   backup)
     sudo bash "$ROOT/host/backup.sh"
+    ;;
+
+  prune)
+    all=0; caches=0
+    for arg in "$@"; do
+      case "$arg" in
+        --all)    all=1 ;;
+        --caches) caches=1 ;;
+        *)        die "uso: mercury prune [--all] [--caches]" ;;
+      esac
+    done
+
+    echo "== Antes"
+    docker system df
+
+    echo "== Imágenes sin etiqueta (agentes y bases reemplazados)"
+    docker image prune -f
+
+    # Cada build deja su imagen en el host (mercury-ci package) y cada ./mercury agents,
+    # una etiqueta fija más. Todas están en el registry, así que la copia local sobra.
+    # rmi sin -f no borra una imagen que esté usando un contenedor: lo desplegado no se toca.
+    echo "== Copias locales de imágenes de apps y etiquetas fijas de agentes"
+    # Un build en marcha necesita su imagen recién construida hasta publicarla y escanearla
+    building="$(docker ps --filter network=mercury-jenkins --format '{{.Names}}' | grep -vxE 'jenkins|socket-proxy' || true)"
+    removed=0
+    while IFS= read -r img; do
+      if [[ -n "$building" ]]; then
+        echo "Hay builds en marcha: este paso se omite. Repite cuando terminen."
+        break
+      fi
+      case "$img" in
+        *:"<none>") continue ;;
+        "$REGISTRY_HOST/apps/"*) ;;
+        "$REGISTRY_HOST/agents/base:current") continue ;;
+        "$REGISTRY_HOST/agents/"*)
+          # Las etiquetas de versión del catálogo son las que usa Jenkins: se conservan
+          spec="${img#"$REGISTRY_HOST/agents/"}"
+          [[ " ${AGENTS[*]} " == *" $spec "* ]] && continue
+          ;;
+        *) continue ;;
+      esac
+      if docker rmi "$img" >/dev/null 2>&1; then
+        echo "borrada  $img"
+        removed=$((removed + 1))
+      else
+        echo "en uso   $img"
+      fi
+    done < <(docker image ls --format '{{.Repository}}:{{.Tag}}')
+    echo "$removed etiquetas borradas"
+
+    echo "== Caché de build con más de 7 días"
+    docker builder prune -f --filter until=168h
+
+    if [[ $all -eq 1 ]]; then
+      # Incluye las imágenes de stacks detenidos: habrá que volver a descargarlas
+      echo "== Todas las imágenes sin contenedor (--all)"
+      docker image prune -a -f
+    fi
+
+    if [[ $caches -eq 1 ]]; then
+      echo "== Cachés de dependencias y de Trivy (--caches)"
+      while IFS= read -r vol; do
+        [[ -n "$vol" ]] || continue
+        if docker volume rm "$vol" >/dev/null 2>&1; then
+          echo "borrado  $vol"
+        else
+          echo "en uso   $vol (hay un build en marcha; repite después)"
+        fi
+      done < <(docker volume ls -q --filter name=mercury-cache-; docker volume ls -q --filter name=mercury-trivy-cache)
+    fi
+
+    echo "== Después"
+    docker system df
+    echo "== Volúmenes de caché (tamaño)"
+    docker system df -v | grep -E 'VOLUME NAME|mercury-(cache-|trivy-cache)' || true
     ;;
 
   *)

@@ -19,6 +19,10 @@ pipeline {
       // 'python' es la versión por defecto. Para fijar otra: 'python-3.11', 'python-3.12' o 'python-3.13'.
       // La imagen de la app se empaqueta con la misma versión que el agente.
       agent { label 'python' }
+      options {
+        // Un build colgado no debe ocupar un cupo de agente indefinidamente
+        timeout(time: 45, unit: 'MINUTES')
+      }
       environment {
         REGISTRY = credentials('registry')
       }
@@ -43,21 +47,27 @@ pipeline {
           }
         }
 
-        stage('Quality gate') {
-          steps {
-            timeout(time: 10, unit: 'MINUTES') {
-              waitForQualityGate abortPipeline: true
+        // La espera del quality gate no consume recursos: los escáneres corren mientras tanto
+        stage('Análisis') {
+          failFast true
+          parallel {
+            stage('Quality gate') {
+              steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                  waitForQualityGate abortPipeline: true
+                }
+              }
             }
-          }
-        }
 
-        stage('Seguridad') {
-          steps {
-            sh '''
-              rm -rf .venv
-              mercury-ci semgrep
-              mercury-ci trivy-fs
-            '''
+            stage('Seguridad') {
+              steps {
+                sh '''
+                  rm -rf .venv
+                  mercury-ci semgrep
+                  mercury-ci trivy-fs
+                '''
+              }
+            }
           }
         }
 
@@ -77,6 +87,12 @@ pipeline {
           }
         }
       }
+      post {
+        always {
+          // El agente es efímero: sin esto el informe de Semgrep se pierde
+          archiveArtifacts artifacts: 'semgrep.json', allowEmptyArchive: true
+        }
+      }
     }
 
     // Sin agente: la espera no ocupa RAM ni un cupo de agente
@@ -93,7 +109,10 @@ pipeline {
       environment {
         REGISTRY = credentials('registry')
       }
-      options { skipDefaultCheckout() }
+      options {
+        skipDefaultCheckout()
+        timeout(time: 10, unit: 'MINUTES')
+      }
       steps {
         sh '''
           mercury-ci login

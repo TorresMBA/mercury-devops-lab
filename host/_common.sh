@@ -35,6 +35,12 @@ install_daemon_json() {
   else
     cat "$HOST_DIR/files/daemon.json" > "$tmp"
   fi
+  # Un daemon.json inválido impide arrancar Docker: se valida antes de instalarlo
+  if command -v dockerd >/dev/null && ! dockerd --validate --config-file "$tmp" >/dev/null; then
+    rm -f "$tmp"
+    echo "El daemon.json generado no es válido: no se instala (revisa host/files/daemon.json)" >&2
+    exit 1
+  fi
   if [[ -f "$target" ]] && cmp -s "$tmp" "$target"; then
     rm -f "$tmp"
     return 1

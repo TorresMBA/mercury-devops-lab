@@ -31,6 +31,13 @@ x-agent-base: &agent-base
   mounts:
     - "type=bind,source=${INBOX_DIR},destination=/inbox,readonly"
     - "type=bind,source=${APPS_DIR},destination=/srv/mercury/apps,readonly"
+    # Cachés de dependencias compartidas entre builds. Son volúmenes con nombre: sobreviven
+    # al agente (removeVolumes solo borra los anónimos). Los directorios de destino existen
+    # en la imagen base con dueño jenkins. Se vacían con: ./mercury prune --caches
+    - "type=volume,source=mercury-cache-nuget,destination=/home/jenkins/.nuget/packages"
+    - "type=volume,source=mercury-cache-maven,destination=/home/jenkins/.m2/repository"
+    - "type=volume,source=mercury-cache-npm,destination=/home/jenkins/.npm"
+    - "type=volume,source=mercury-cache-pip,destination=/home/jenkins/.cache/pip"
 
 jenkins:
   systemMessage: "Mercury CI/CD. Configuración gestionada por código: los cambios hechos en la interfaz se pierden al reiniciar."
