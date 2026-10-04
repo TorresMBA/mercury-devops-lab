@@ -198,6 +198,7 @@ Por dónde empezar según el síntoma. Cada documento enlazado tiene el detalle.
 | Build en *Waiting for next available executor* | `./mercury agents list`; revisar la etiqueta del Jenkinsfile y `JENKINS_MAX_AGENTS` | [08](08-jenkins-y-agentes.md#ciclo-de-vida-de-un-agente) |
 | El agente no llega a conectar | `./mercury logs jenkins` y `./mercury logs jenkins socket-proxy` | [02](../instalacion/02-puesta-en-marcha.md#fase-3-jenkins) |
 | Jenkins no arranca tras editar `casc/` | `./mercury logs jenkins`: JCasC indica la clave que no entiende | [08](08-jenkins-y-agentes.md#configuración-como-código) |
+| *Quality gate* falla al instante con `Unable to guess SonarQube task id` y antes aparece `Unable to locate 'report-task.txt' in the workspace` | El escáner escribió su carpeta de trabajo fuera del *workspace*. `mercury-ci sonar` la fija con `sonar.working.directory`; si el agente es anterior a ese cambio, `./mercury agents` | [09](09-pipelines-y-despliegue.md#comunicación-con-sonarqube) |
 | *Quality gate* agota los 10 minutos | Falta el webhook de SonarQube hacia Jenkins | [09](09-pipelines-y-despliegue.md#comunicación-con-sonarqube) |
 | SonarQube no arranca | `sysctl vm.max_map_count` debe dar 524288 | [01](../instalacion/01-host.md) |
 | *Deploy* falla a los 120 segundos | `docker logs <app>-<env>`; revisar `APPS_DIR/<env>/<app>.env` | [09](09-pipelines-y-despliegue.md#despliegue) |

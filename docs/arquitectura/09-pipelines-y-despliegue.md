@@ -207,6 +207,8 @@ sequenceDiagram
 
 La ida pasa por NPM porque el agente no comparte red con SonarQube. La vuelta es directa: SonarQube y el controller están ambos en `net-tools`. Ese webhook se crea a mano en SonarQube; si falta, la etapa *Quality gate* agota sus 10 minutos.
 
+**Cómo sabe Jenkins qué análisis esperar.** Al cerrar el bloque `withSonarQubeEnv`, el plugin busca en el *workspace* el archivo `report-task.txt` que deja el escáner, con el identificador de la tarea. Sin ese archivo, `waitForQualityGate` falla al instante con `Unable to guess SonarQube task id`. Con el escáner de .NET y el de Maven el archivo queda en el *workspace* por sí solo. La imagen `sonar-scanner-cli` que usa `mercury-ci sonar` lleva su carpeta de trabajo a `/tmp` del contenedor, que se pierde al terminar: por eso el paso pasa `-Dsonar.working.directory="$PWD/.scannerwork"`.
+
 `withSonarQubeEnv('sonarqube')` inyecta `SONAR_HOST_URL` y `SONAR_AUTH_TOKEN` a partir de la instalación `sonarqube` definida en `casc/jenkins.yaml` y de la credencial `sonar-token`.
 
 ## Empaquetado

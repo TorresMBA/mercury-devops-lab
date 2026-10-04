@@ -113,11 +113,15 @@ case "$step" in
     [[ $# -ge 1 ]] || die "uso: sonar <clave-proyecto> [args]"
     key="$1"; shift
     : "${SONAR_HOST_URL:?ejecutar dentro de withSonarQubeEnv('sonarqube')}"
+    # La imagen del escáner lleva su carpeta de trabajo a /tmp del contenedor, que se
+    # pierde al terminar. Se fija dentro del workspace: ahí busca Jenkins el archivo
+    # report-task.txt que necesita waitForQualityGate.
     in_workspace \
       -e SONAR_HOST_URL="$SONAR_HOST_URL" \
       -e SONAR_TOKEN="${SONAR_AUTH_TOKEN:?}" \
       "$SONAR_SCANNER_IMAGE" \
-      -Dsonar.projectKey="$key" -Dsonar.sources=. "$@"
+      -Dsonar.projectKey="$key" -Dsonar.sources=. \
+      -Dsonar.working.directory="$PWD/.scannerwork" "$@"
     ;;
 
   semgrep)
