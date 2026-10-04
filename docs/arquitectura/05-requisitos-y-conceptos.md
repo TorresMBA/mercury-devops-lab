@@ -145,7 +145,7 @@ Los plugins de Jenkins (`stacks/devops/jenkins/plugins.txt`) no llevan versión 
 
 **Quality gate.** Umbral de calidad que SonarQube evalúa tras el análisis. Si no se supera, el pipeline se detiene.
 
-**SAST / SCA.** Análisis estático del código propio (Semgrep) y análisis de las dependencias de terceros (Trivy).
+**SAST / SCA.** Análisis estático del código propio (Semgrep) y análisis de las dependencias de terceros (Trivy). Como referencia frente a herramientas comerciales: Semgrep hace el papel de Checkmarx o Snyk Code, y Trivy el de Snyk Open Source.
 
 **Canal CI.** El pipeline nace de un `git push`: compila, prueba, analiza, empaqueta y despliega.
 

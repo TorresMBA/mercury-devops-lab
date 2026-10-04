@@ -94,6 +94,34 @@ Las dependencias (NuGet, Maven, npm, pip) se guardan en una caché compartida en
 
 Por defecto los escáneres de seguridad informan pero no rompen el build. Para que los hallazgos de severidad alta o crítica lo detengan, añade al `environment` del Jenkinsfile: `MERCURY_SCAN_STRICT = '1'`.
 
+#### Leer los resultados de seguridad
+
+Las tres herramientas no son redundantes: cada una mira una cosa distinta.
+
+| Herramienta | Qué revisa | Dónde se ve | Se parece a |
+|---|---|---|---|
+| SonarQube | Calidad del código: errores, duplicación, cobertura y puntos de seguridad a revisar (*hotspots*). En la edición Community no sigue el recorrido de un dato por el código | `https://sonar.int.<dominio>` | — |
+| Semgrep | Vulnerabilidades en el código propio (inyección SQL, XSS, rutas manipuladas...), clasificadas por CWE y OWASP | Consola del stage *Seguridad* y `semgrep.json` en los artefactos del build | Checkmarx, Snyk Code |
+| Trivy | Dependencias con vulnerabilidades conocidas, secretos, mala configuración y la imagen final | Consola de los stages *Seguridad* e *Imagen* | Snyk Open Source |
+
+En la consola, Semgrep lista cada hallazgo con su archivo, línea y regla, y después aparece la tabla de Trivy. El archivo `semgrep.json` se descarga desde la página del build (*Artefactos*); los campos útiles de cada elemento de `results` son `check_id` (la regla), `path`, `start.line`, `extra.message` y `extra.metadata.cwe`.
+
+**Reproducir en tu máquina un hallazgo de Checkmarx o Snyk.** Semgrep es lo más parecido que hay en la plataforma. Desde la raíz del proyecto, con Docker, el mismo análisis que lanza el pipeline (no probado fuera del pipeline):
+
+```bash
+docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep:1.178.0 \
+  semgrep scan --config p/default --metrics off .
+```
+
+En PowerShell, la misma orden en una línea y con `${PWD}` en lugar de `$PWD`.
+
+Para acercarte al informe de la empresa, cambia `--config p/default` por un conjunto de reglas más cercano a lo que te marcaron: `p/owasp-top-ten`, `p/cwe-top-25` o el del lenguaje (`p/java`, `p/csharp`, `p/javascript`, `p/python`). Se pueden repetir varios `--config`.
+
+Dos límites que conviene tener presentes:
+
+- Las reglas no son las de Checkmarx ni las de Snyk: se reproduce el tipo de fallo (el mismo CWE), no el mismo informe.
+- La versión gratuita sigue un dato dentro de un archivo, no de un archivo a otro. Un hallazgo que cruza varias clases puede no aparecer.
+
 **Disparo automático.** Jenkins no es visible desde internet, así que GitHub no puede enviarle webhooks. Lo más simple es que Jenkins consulte el repo: en el job, *Build Triggers > Poll SCM* con `H/5 * * * *` (cada 5 minutos).
 
 ### Dockerfile propio

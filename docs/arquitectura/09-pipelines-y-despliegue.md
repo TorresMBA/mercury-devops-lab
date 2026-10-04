@@ -96,6 +96,8 @@ flowchart TB
 - La base de datos de Trivy vive en el volumen `mercury-trivy-cache`, compartido entre builds.
 - `trivy-fs` monta además `mercury-cache-maven` en `/root/.m2/repository`, en solo lectura, y usa `--offline-scan`: para un `pom.xml` Trivy resuelve los POM padre y las dependencias transitivas, y sin repositorio local los pediría uno a uno a Maven Central, que responde `429` y bloquea la IP media hora (también a los builds). Con la caché que llenó `mvn verify` no necesita salir. Lo que no esté en la caché no se analiza.
 
+Semgrep y SonarQube conviven a propósito. SonarQube Community mide calidad y señala puntos a revisar, pero no sigue el recorrido de un dato por el código; Semgrep sí busca vulnerabilidades de ese tipo y es el equivalente más cercano a un SAST comercial como Checkmarx o Snyk Code. Cómo leer sus resultados y cómo lanzarlo en local está en [Leer los resultados de seguridad](../instalacion/03-despliegues.md#leer-los-resultados-de-seguridad).
+
 ### Modo informativo y modo estricto
 
 Por defecto los escáneres informan y no rompen el build. Con `MERCURY_SCAN_STRICT = '1'` en el `environment` del Jenkinsfile:
