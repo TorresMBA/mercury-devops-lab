@@ -8,6 +8,8 @@ La documentación está en tres carpetas, según lo que se quiera hacer:
 | [`arquitectura/`](arquitectura/) | Entender y mantener la plataforma | ¿Cómo está construido y por qué? |
 | [`scripts/`](scripts/) | Modificar `mercury` y `mercury-ci` | ¿Cómo está escrito el script y cómo le añado algo? |
 
+**¿Buscas un comando?** [comandos.md](comandos.md) lista todos los de `mercury`, `mercury-ci` y `host/`, y los servicios programados de backup y limpieza, con una línea por cada uno.
+
 ## `instalacion/`: levantar y operar
 
 | Documento | Contenido |

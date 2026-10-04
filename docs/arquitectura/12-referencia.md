@@ -2,6 +2,8 @@
 
 Comandos, variables y scripts, para consultar. Las explicaciones están en los documentos 06 a 11; el interior de `mercury` y `mercury-ci`, en la carpeta [scripts](../scripts/02-mercury.md).
 
+Para un listado rápido de todos los comandos y de los servicios programados, sin el detalle: [comandos.md](../comandos.md).
+
 ## `mercury`
 
 Script bash de la raíz del repo. Se ejecuta en el servidor, desde cualquier directorio. Exige el `.env` raíz, salvo para `help`.

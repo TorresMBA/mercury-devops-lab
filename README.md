@@ -55,7 +55,7 @@ Los agentes de build tienen un catálogo de versiones (.NET 8/9/10, Java 8 a 25,
 
 ## Documentación
 
-Está en `docs/`, en tres carpetas. El índice completo, con rutas de lectura según la tarea, es [docs/README.md](docs/README.md).
+Está en `docs/`, en tres carpetas. El índice completo, con rutas de lectura según la tarea, es [docs/README.md](docs/README.md). El listado de todos los comandos y de los servicios programados (backup y limpieza) está en [docs/comandos.md](docs/comandos.md).
 
 ### Puesta en marcha: `docs/instalacion/`
 
