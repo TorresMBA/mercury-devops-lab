@@ -53,6 +53,22 @@ Lee el `.env` de Jenkins (`AGENT_VERSION`). Detalle en [08-jenkins-y-agentes.md]
 | `deploy <app> <dev\|prod> <tag>` | Despliega `apps/<app>:<tag>` del registry |
 | `undeploy <app> <dev\|prod>` | `docker compose -p <app>-<env> down` |
 
+### Bases de datos
+
+`<env>` es `dev` o `prod` y `<motor>` es `postgres`, `mariadb` o `mssql`. Operan sobre los stacks `data/db-<env>`, cuyo `.env` exigen.
+
+| Comando | Qué hace |
+|---|---|
+| `db ps` | Contenedores de los dos stacks y motores de `COMPOSE_PROFILES` (los que arrancan con `up all`) |
+| `db up <env> <motor>` | `compose --profile <motor> up -d --wait <motor>`. `restart: unless-stopped` lo mantiene encendido tras reiniciar |
+| `db down <env> <motor>` | `compose --profile <motor> rm -s -f <motor>`. Los datos se conservan |
+| `db down <env> all` | `compose --profile '*' down`: todos los motores del ambiente |
+| `db create <env> <motor> <app>` | Base y usuario `<app>` (con `_` en lugar de `-`), clave aleatoria. Añade `DB_*`, `ConnectionStrings__Default`, `SPRING_DATASOURCE_*` y `DATABASE_URL` a `APPS_DIR/<env>/<app>.env` (con `sudo`). Se niega si ya hay una conexión |
+| `db drop <env> <motor> <app>` | Borra la base y el usuario tras escribir su nombre. No toca el `.env` de la app |
+| `db shell <env> <motor> [app]` | `psql`, `mariadb` o `sqlcmd` como administrador, en la base de la app si se indica |
+
+Las claves de administrador se leen del entorno del contenedor (`docker exec ... sh -c`), no de la línea de comandos del host. Detalle en [03-despliegues.md](../instalacion/03-despliegues.md#base-de-datos-de-una-app).
+
 ### Registry y operación
 
 | Comando | Qué hace |
@@ -130,6 +146,10 @@ Lo leen `mercury`, todos los compose y los scripts de `host/`.
 | | `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD` | Usuario administrador. Solo se aplican en el primer arranque |
 | `storage/files` | `SAMBA_VERSION` | Versión |
 | | `SAMBA_USER`, `SAMBA_PASSWORD` | Acceso a la carpeta compartida |
+| `data/db-dev`, `data/db-prod` | `POSTGRES_VERSION`, `MARIADB_VERSION`, `MSSQL_VERSION` | Versiones |
+| | `POSTGRES_PASSWORD`, `MARIADB_ROOT_PASSWORD`, `MSSQL_SA_PASSWORD` | Administradores (`postgres`, `root`, `sa`). Solo se aplican al crear el directorio de datos. La de SQL Server exige complejidad |
+| | `MSSQL_PID` | Edición de SQL Server: `Developer` en dev, `Express` en prod |
+| | `COMPOSE_PROFILES` | Motores que arrancan con `up all`: `postgres`, `mariadb`, `mssql`, separados por coma. Vacío = todos a demanda |
 
 ### `credentials.env` de Jenkins
 
@@ -180,11 +200,11 @@ Todos se ejecutan con `sudo`, cargan `host/_common.sh` y leen el `.env` raíz. S
 | `01-base.sh` | Instalación | Paquetes (`ufw`, `jq`, `apache2-utils`, `restic`...), actualizaciones automáticas de seguridad, parámetros de kernel, swap hasta 8 GB, usuario `deployer`, configuración de SSH, reglas UFW |
 | `02-disks.sh` | Instalación, y tras añadir un stack con datos | Monta el HDD por UUID con `nofail` y crea los directorios con su dueño. No particiona ni formatea. No toca lo existente |
 | `03-docker.sh` | Instalación | Docker Engine, buildx y compose desde el repositorio oficial; instala `daemon.json`; añade al operador al grupo `docker` |
-| `04-networks.sh` | Instalación, y tras añadir una red compartida | Crea `net-tools`, `net-apps-dev`, `net-apps-prod` y `net-obs` (interna) si no existen |
+| `04-networks.sh` | Instalación, y tras añadir una red compartida | Crea `net-tools`, `net-apps-dev`, `net-apps-prod`, y `net-obs`, `net-db-dev` y `net-db-prod` (internas) si no existen |
 | `05-backup.sh` | Tras levantar los stacks | Contraseña y repositorio restic; servicio y timer de systemd (03:30) |
 | `06-dns.sh` | Tras `./mercury up dns` | Comprueba que AdGuard responde; drop-in de systemd-resolved; añade `dns` a `daemon.json` y reinicia Docker |
 | `07-cleanup.sh` | Tras levantar los stacks | Servicio y timer de systemd que ejecutan `./mercury prune` cada domingo a las 04:30 |
-| `backup.sh` | Lo llama el timer o `./mercury backup` | Volcado de SonarQube, `restic backup`, retención |
+| `backup.sh` | Lo llama el timer o `./mercury backup` | Volcados de SonarQube y de las bases de prod en marcha, `restic backup`, retención |
 | `migrate-layout.sh` | Una vez, sin `sudo`, al migrar desde la estructura antigua | Mueve los `.env` de `stacks/<stack>` a `stacks/<grupo>/<stack>` |
 
 Constantes de `host/_common.sh`:
@@ -234,3 +254,6 @@ Comportamientos que conviene conocer:
 | Agentes | `/home/jenkins/.nuget/packages`, `.m2/repository`, `.npm`, `.cache/pip` | Volúmenes `mercury-cache-*`, compartidos entre builds |
 | Agentes | `/tmp/mercury-trivy-db-al-dia` | Marcador que deja `trivy-fs` para que `trivy-image` no actualice de nuevo la base de datos |
 | Agentes `maven` | `/opt/jdk` | JDK del proyecto |
+| `pg-<env>` | `/var/lib/postgresql/data` | `DATA_DIR/db/<env>/postgres` |
+| `mariadb-<env>` | `/var/lib/mysql` | `DATA_DIR/db/<env>/mariadb` |
+| `mssql-<env>` | `/var/opt/mssql` (`backup/` con los `.bak` de prod) | `DATA_DIR/db/<env>/mssql` |

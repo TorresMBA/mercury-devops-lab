@@ -21,7 +21,7 @@ En la máquina de desarrollo no hay Docker. Lo que se puede comprobar ahí es la
 En la máquina de desarrollo:
 
 ```bash
-bash -n mercury pipelines/lib/mercury-ci host/*.sh        # sintaxis de scripts
+for f in mercury pipelines/lib/mercury-ci host/*.sh; do bash -n "$f"; done   # sintaxis (bash -n solo mira el primer archivo)
 npx --yes js-yaml stacks/<grupo>/<stack>/compose.yaml     # sintaxis YAML (un archivo)
 ```
 
@@ -56,6 +56,8 @@ flowchart TB
 | Cambio en | Comando | Motivo |
 |---|---|---|
 | `compose.yaml` o `.env` de un stack | `./mercury up <stack>` | Compose recrea lo que cambió |
+| `compose.yaml` o `.env` de `data/db-dev` o `db-prod` | `./mercury db up <env> <motor>` por cada motor encendido | `up` solo alcanza a los motores de `COMPOSE_PROFILES`. Cambiar una clave de administrador en el `.env` no la cambia en un servidor ya inicializado: hay que hacerlo también con `db shell` |
+| Redes de `compose.deploy.yaml` | `./mercury agents` y redesplegar las apps | Las apps desplegadas no cambian de red hasta recrear su contenedor |
 | `stacks/devops/jenkins/casc/*.yaml` | `./mercury restart jenkins` | El YAML va montado: `up` no recrea el contenedor si no cambió el compose ni un `.env` |
 | `pipelines/manual-release/Jenkinsfile` | `./mercury restart jenkins` | job-dsl lo lee al cargar la configuración |
 | `stacks/devops/jenkins/.env`, `credentials.env` | `./mercury up jenkins` | Las variables de entorno exigen recrear el contenedor |
@@ -81,7 +83,7 @@ Para modificar los scripts en sí (añadir un comando a `mercury` o un paso a `m
 
 1. Crea `stacks/<grupo>/<nombre>/compose.yaml` y `.env.example`. El `name:` es el nombre corto y debe ser único entre todos los grupos.
 2. En el compose: versión de imagen en variable, `restart: unless-stopped`, `mem_limit`, `no-new-privileges` si la imagen lo admite, sin `ports:` salvo protocolo no HTTP.
-3. Redes: `net-tools` si tiene interfaz web; red propia `internal: true` para su base de datos. Ver [07-redes-y-dns.md](07-redes-y-dns.md#reglas-al-añadir-un-servicio).
+3. Redes: `net-tools` si tiene interfaz web; red propia `internal: true` para su base de datos (las de las apps no: van en `stacks/data`). Ver [07-redes-y-dns.md](07-redes-y-dns.md#reglas-al-añadir-un-servicio).
 4. Datos: bind-mount en `${DATA_DIR}/<nombre>` o `${HDD_DIR}/<nombre>`, y su línea `mk` en `host/02-disks.sh` con el UID de la imagen.
 5. Añade `<grupo>/<nombre>` a la lista `STACKS` de `mercury`, en la posición en que deba arrancar.
 6. Suma su `mem_limit` a las tablas de `README.md` y de [06-arquitectura.md](06-arquitectura.md#presupuesto-de-memoria).
@@ -136,6 +138,8 @@ Ejemplo: Go.
 
 | Tarea | Dónde |
 |---|---|
+| Dar base de datos a una app | `./mercury db create <env> <motor> <app>`; ver [03-despliegues.md](../instalacion/03-despliegues.md#base-de-datos-de-una-app) |
+| Añadir un motor de base de datos | Un servicio con su perfil en los dos `stacks/data/db-*/compose.yaml`; `DB_ENGINES`, `DB_PREFIX`, `DB_PORT` y los `case` de `db_client`, `create` y `drop` en `mercury`; su volcado en `host/backup.sh`; directorios en `host/02-disks.sh`; puerto en `host/01-base.sh` |
 | Añadir una carpeta de Jenkins | Mapa `carpetas` de `casc/jenkins.yaml`; `./mercury restart jenkins` |
 | Añadir una cuenta de git | [03-despliegues.md](../instalacion/03-despliegues.md#credenciales-de-git) |
 | Añadir una red compartida | `host/04-networks.sh`, y declararla `external` en cada compose |
@@ -186,6 +190,7 @@ En el servidor ya funcionan `edge`, `registry` y `jenkins`. Lo siguiente está e
 - El marcador de Trivy (`--skip-db-update` en `trivy-image`).
 - `trivy-fs` con la caché de Maven montada en solo lectura y `--offline-scan`.
 - `./mercury prune` contra un Docker real, `host/07-cleanup.sh`, el bloque `builder.gc` de `daemon.json` y la validación con `dockerd --validate` en `install_daemon_json`.
+- Los servidores de base de datos de `stacks/data`: los perfiles con `COMPOSE_PROFILES` desde el `.env` del stack, `db down all` con `--profile '*'`, la publicación de puertos con una red interna más la red `publish`, `no-new-privileges` en MariaDB y SQL Server, el dueño `10001:0` del directorio de SQL Server, los healthcheck (`healthcheck.sh` de MariaDB, `sqlcmd -C` de SQL Server), el SQL de `db create`/`db drop` con `sqlcmd` leyendo de stdin, las etiquetas de imagen fijadas (`MARIADB_VERSION`, `MSSQL_VERSION`), las cadenas de conexión entre comillas simples en el `env_file`, el `env_file` de los `compose.quick.yaml` y los volcados de prod en `host/backup.sh`.
 
 La lista se mantiene también en `CLAUDE.md`, en la raíz del repo.
 

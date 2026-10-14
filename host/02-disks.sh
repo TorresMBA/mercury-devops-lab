@@ -60,6 +60,16 @@ mk 10001:10001 755 "$HDD_DIR/loki"                 # loki
 
 mk root:root 700 "$HDD_DIR/backups"
 
+log "Servidores de base de datos (stacks/data)"
+mk root:root 755 "$DATA_DIR/db"
+for env in dev prod; do
+  mk root:root 755 "$DATA_DIR/db/$env"
+  mk root:root 755 "$DATA_DIR/db/$env/postgres"    # postgres y mariadb ajustan el dueño al iniciar
+  mk root:root 755 "$DATA_DIR/db/$env/mariadb"
+  mk 10001:0 770 "$DATA_DIR/db/$env/mssql"         # SQL Server corre como mssql (10001)
+done
+mk root:root 700 "$DATA_DIR/db/prod/dumps"         # volcados de host/backup.sh
+
 log "Canal manual"
 # El directorio del chroot SFTP debe ser de root y no escribible por otros
 mk root:root 755 "$(dirname "$INBOX_DIR")"

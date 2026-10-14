@@ -312,7 +312,7 @@ Los runtimes `flask`, `node`, `static` y `spa` traen un `Dockerfile.dockerignore
 | `container_name` | `<app>-<env>` | NPM y el túnel apuntan siempre al mismo nombre |
 | `image` | `<REGISTRY_HOST>/apps/<app>:<tag>` | La imagen exacta que se construyó |
 | `env_file` | `APPS_DIR/<env>/<app>.env`, opcional | Configuración y secretos por ambiente, fuera de git y de la imagen |
-| red | `net-apps-<env>`, externa | Aislamiento entre dev y prod |
+| redes | `net-apps-<env>` y `net-db-<env>`, externas | Aislamiento entre dev y prod; acceso a los servidores de base de datos del ambiente (`stacks/data/db-<env>`), aunque estén apagados |
 | `mem_limit` | `APP_MEM_LIMIT`, 512 MB por defecto | Ninguna app sin límite |
 | `no-new-privileges` | activado | — |
 

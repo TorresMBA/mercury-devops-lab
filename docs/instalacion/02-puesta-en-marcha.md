@@ -8,6 +8,7 @@ Los stacks están agrupados por función en `stacks/<grupo>/<stack>`. `./mercury
 | `devops` | `registry`, `jenkins`, `sonarqube` |
 | `monitoring` | `metrics`, `logs`, `grafana` |
 | `storage` | `files` (Samba) |
+| `data` | `db-dev`, `db-prod` (PostgreSQL, MariaDB y SQL Server de las apps, a demanda) |
 
 Levanta un stack, verifícalo y pasa al siguiente. El patrón es siempre el mismo:
 
@@ -282,3 +283,35 @@ cp stacks/core/management/.env.example stacks/core/management/.env
 ```
 
 Portainer exige crear el administrador en los primeros minutos tras arrancar; si se pasa el plazo, `./mercury restart management`.
+
+## Fase 8. Bases de datos de las apps
+
+Solo hace falta cuando una app necesite base de datos. Si el servidor se instaló antes de existir esta fase, aplica primero lo que falta en el host (los scripts solo crean lo que no existe):
+
+```bash
+sudo bash host/04-networks.sh        # redes net-db-dev y net-db-prod
+sudo bash host/02-disks.sh           # DATA_DIR/db/<env>/<motor>
+sudo ufw allow from <LAN_SUBNET> to any port 1433,3306,5432 proto tcp   # o repite host/01-base.sh
+./mercury agents                     # el compose de despliegue de los agentes incluye la red nueva
+```
+
+Las apps desplegadas antes de este paso entran a `net-db-<env>` al redesplegarlas.
+
+```bash
+cp stacks/data/db-dev/.env.example stacks/data/db-dev/.env
+cp stacks/data/db-prod/.env.example stacks/data/db-prod/.env
+nano stacks/data/db-dev/.env         # claves de administrador; distintas en prod
+nano stacks/data/db-prod/.env
+./mercury config db-dev              # ningún motor aparece si COMPOSE_PROFILES está vacío
+./mercury db up dev postgres
+./mercury db ps
+```
+
+**Verificación.**
+
+- `./mercury db create dev postgres prueba` imprime la conexión y la añade a `apps/dev/prueba.env`.
+- Desde Windows, DBeaver conecta a `db-dev.int.<dominio>:5432` con el usuario `prueba`.
+- `Test-NetConnection <IP_DEL_SERVIDOR> -Port 5432` funciona con `pg-dev` encendida y falla tras `./mercury db down dev postgres`. Prod nunca responde desde la LAN.
+- Limpieza: `./mercury db drop dev postgres prueba` y `sudo rm /srv/mercury/apps/dev/prueba.env`.
+
+El uso diario (crear bases, elegir motores por defecto, conectarse) está en [03-despliegues.md](03-despliegues.md#base-de-datos-de-una-app).

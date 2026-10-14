@@ -282,13 +282,84 @@ Repite el comando tras copiar una versión nueva (en sitios estáticos no hace f
 Las variables de entorno de cada app y ambiente van en un archivo del servidor, fuera de git y de la imagen:
 
 ```bash
-nano /srv/mercury/apps/prod/mi-api.env
-# ConnectionStrings__Default=Server=...;Password=...
-# SPRING_DATASOURCE_URL=jdbc:postgresql://...
-chmod 640 /srv/mercury/apps/prod/mi-api.env
+sudo nano /srv/mercury/apps/prod/mi-api.env
+# FEATURE_X=true
+# Jwt__Secret=...
+sudo chown 1000:1000 /srv/mercury/apps/prod/mi-api.env && sudo chmod 640 /srv/mercury/apps/prod/mi-api.env
 ```
 
-Se aplica en el siguiente despliegue. Para subir el límite de memoria de una app (512 MB por defecto), define `APP_MEM_LIMIT = '1g'` en el `environment` de su Jenkinsfile.
+Lo de la base de datos no hace falta escribirlo a mano: lo añade `./mercury db create` (siguiente sección). Se aplica en el siguiente despliegue; también lo lee el modo rápido (`apps/dev/<app>.env`). Para subir el límite de memoria de una app (512 MB por defecto), define `APP_MEM_LIMIT = '1g'` en el `environment` de su Jenkinsfile.
+
+## Base de datos de una app
+
+Las apps no levantan su propio contenedor de base de datos. Hay un servidor por motor y ambiente (`stacks/data/db-dev` y `stacks/data/db-prod`), y dentro, una base y un usuario por app:
+
+| Motor | Contenedor | Puerto | Edición / notas |
+|---|---|---|---|
+| `postgres` | `pg-<env>` | 5432 | PostgreSQL 17 |
+| `mariadb` | `mariadb-<env>` | 3306 | MariaDB 11.4 LTS, compatible con los clientes y drivers de MySQL |
+| `mssql` | `mssql-<env>` | 1433 | SQL Server 2022: Developer en dev, Express en prod (10 GB por base) |
+
+Toda app desplegada está en la red `net-db-<env>` de su ambiente, así que basta con crear su base y redesplegarla:
+
+```bash
+./mercury db up dev postgres              # enciende el servidor (sigue encendido hasta db down)
+./mercury db create dev postgres mi-api   # base y usuario mi_api, conexión en apps/dev/mi-api.env
+./mercury deploy mi-api dev 41            # o un build nuevo: el contenedor lee el .env al crearse
+```
+
+`db create` añade al `.env` de la app la misma conexión en varios formatos, para que sirva a cualquier runtime sin tocarla:
+
+| Variable | Para |
+|---|---|
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_ENGINE` | Cualquiera, si la app arma su propia conexión |
+| `ConnectionStrings__Default` | .NET: `builder.Configuration.GetConnectionString("Default")` |
+| `SPRING_DATASOURCE_URL`, `_USERNAME`, `_PASSWORD` | Spring Boot, sin configuración adicional. Con MariaDB la URL es `jdbc:mariadb://`: usa el driver `org.mariadb.jdbc:mariadb-java-client` |
+| `DATABASE_URL` | Flask (SQLAlchemy) y Node (Prisma, Knex, `pg`, `mysql2`) |
+
+El host de la conexión es el nombre del contenedor (`pg-dev`, `mssql-prod`). La clave es aleatoria y solo queda en ese archivo. Si la app ya tiene una conexión en su `.env`, `db create` se niega: quita esas líneas antes.
+
+### Encender y apagar
+
+Todo es a demanda: `./mercury up all` no levanta ninguna base salvo las que elijas como "por defecto".
+
+```bash
+./mercury db ps                     # estado de los dos ambientes y motores por defecto
+./mercury db up prod mssql          # se queda encendida, también tras reiniciar el servidor
+./mercury db down prod mssql        # la detiene; los datos se conservan
+./mercury db down dev all           # apaga todos los motores de dev
+```
+
+Para que un motor arranque también con `./mercury up all` (o `up data`, `up db-prod`), ponlo en `COMPOSE_PROFILES` del `.env` del stack, por ejemplo `COMPOSE_PROFILES=postgres` o `postgres,mssql` en `stacks/data/db-prod/.env`. `db down` no cambia ese archivo: un motor por defecto que apagues vuelve a encenderse con el siguiente `up all`. `./mercury down db-prod` solo apaga los motores por defecto; para todos, `db down prod all`.
+
+Si la base de una app de prod está apagada, la app arranca pero falla al conectar: enciende el servidor antes de desplegarla.
+
+### Conectarse desde Windows (solo dev)
+
+Los servidores de dev publican su puerto en la IP LAN. Desde DBeaver, HeidiSQL, Azure Data Studio o SSMS:
+
+| Campo | Valor |
+|---|---|
+| Servidor | `db-dev.int.<dominio>` (lo resuelve AdGuard; también vale la IP del servidor) |
+| Puerto | 5432, 3306 o 1433 |
+| Base, usuario y clave | Los que imprime `db create` (también en `apps/dev/<app>.env`) |
+| SQL Server | Marca *Trust server certificate*: el certificado es autofirmado |
+
+Usa el usuario de la app y no el administrador (`postgres`, `root`, `sa`), salvo para tareas de administración. Prod no publica puertos: se administra desde el servidor con `./mercury db shell prod <motor> [app]`.
+
+### Borrar o migrar
+
+```bash
+./mercury db drop dev postgres mi-api     # pide escribir el nombre; luego quita las líneas del .env
+./mercury db shell dev postgres mi-api    # consola SQL de administrador en la base de la app
+```
+
+Para traer una base que ya existe (por ejemplo, de un contenedor propio de la app), vuélcala y cárgala en la nueva base después de `db create`, como el usuario de la app para que las tablas sean suyas. Ejemplo con PostgreSQL:
+
+```bash
+docker exec vieja-db pg_dump -U usuario --no-owner --no-acl base \
+  | docker exec -i pg-prod psql -v ON_ERROR_STOP=1 -U mi_api -d mi_api
+```
 
 ## Operaciones frecuentes
 
@@ -303,4 +374,4 @@ docker logs -f mi-api-prod                        # logs (también en Grafana: {
 
 Dev y prod están separados por red, no por máquina: un contenedor de `net-apps-dev` no puede hablar con uno de `net-apps-prod`, y el túnel de Cloudflare solo ve prod. Comparten CPU y RAM, así que el límite de memoria por contenedor es lo que evita que una prueba en dev afecte a producción.
 
-Si una app necesita base de datos, créala como un stack propio (por ejemplo en `stacks/apps/<nombre>-db`) con su red privada `internal` y conecta la app también a esa red, siguiendo el modelo de `stacks/devops/sonarqube`.
+Las bases de datos siguen la misma separación: cada ambiente tiene sus propios servidores en su red (`net-db-dev`, `net-db-prod`), así que una app de dev no puede llegar a la base de prod. Ver [Base de datos de una app](#base-de-datos-de-una-app).

@@ -4,6 +4,8 @@
 #   net-apps-dev   apps desplegadas en dev
 #   net-apps-prod  apps desplegadas en prod (única red que ve cloudflared)
 #   net-obs        privada del grupo monitoring, sin salida a otras redes
+#   net-db-dev     apps de dev y sus servidores de base de datos (stacks/data/db-dev), interna
+#   net-db-prod    apps de prod y sus servidores de base de datos (stacks/data/db-prod), interna
 # Uso: sudo ./host/04-networks.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -21,5 +23,7 @@ create net-tools
 create net-apps-dev
 create net-apps-prod
 create net-obs --internal
+create net-db-dev --internal
+create net-db-prod --internal
 
 log "Listo. Siguiente: docs/instalacion/02-puesta-en-marcha.md"

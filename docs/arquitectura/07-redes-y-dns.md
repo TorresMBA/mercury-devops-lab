@@ -14,6 +14,9 @@ Un contenedor solo alcanza a los contenedores con los que comparte red, y los al
 | `net-apps-dev` | externa | `host/04-networks.sh` | `npm`, apps `<app>-dev` | Apps en dev |
 | `net-apps-prod` | externa | `host/04-networks.sh` | `npm`, `cloudflared`, `whoami-prod`, apps `<app>-prod` | Apps en prod; única red que ve el túnel |
 | `net-obs` | externa e interna | `host/04-networks.sh` | `prometheus`, `cadvisor`, `loki`, `alloy`, `grafana` | Observabilidad, sin salida a otras redes |
+| `net-db-dev` | externa e interna | `host/04-networks.sh` | `pg-dev`, `mariadb-dev`, `mssql-dev`, apps `<app>-dev` | Apps de dev con sus servidores de base de datos |
+| `net-db-prod` | externa e interna | `host/04-networks.sh` | `pg-prod`, `mariadb-prod`, `mssql-prod`, apps `<app>-prod` | Apps de prod con sus servidores de base de datos |
+| `db-dev_publish` | del stack `db-dev` | compose de `db-dev` | `pg-dev`, `mariadb-dev`, `mssql-dev` | Publica sus puertos en `LAN_IP`: una red interna no puede |
 | `mercury-jenkins` | del stack `jenkins`, con nombre fijo | compose de Jenkins | `jenkins`, `socket-proxy`, agentes, Trivy al escanear una imagen | Acceso a la API de Docker. No se comparte |
 | `sonarqube_db` | del stack `sonarqube`, interna | compose de SonarQube | `sonarqube`, `sonar-db` | Solo SonarQube habla con su base de datos |
 | red del host | `network_mode: host` | — | `node-exporter` | Ver interfaces y discos reales |
@@ -27,6 +30,8 @@ flowchart LR
   NO(["net-obs · interna"])
   NJ(["mercury-jenkins"])
   NDB(["sonarqube_db · interna"])
+  NBD(["net-db-dev · interna"])
+  NBP(["net-db-prod · interna"])
 
   npm["npm"]
   adguard["adguard"]
@@ -44,6 +49,8 @@ flowchart LR
   cfd["cloudflared"]
   appdev["app-dev"]
   appprod["app-prod"]
+  dbdev["pg / mariadb / mssql -dev"]
+  dbprod["pg / mariadb / mssql -prod"]
 
   npm --- NT
   npm --- ND
@@ -67,6 +74,10 @@ flowchart LR
   cfd --- NP
   appdev --- ND
   appprod --- NP
+  appdev --- NBD
+  dbdev --- NBD
+  appprod --- NBP
+  dbprod --- NBP
 ```
 
 Lo que se deduce del diagrama:
@@ -76,11 +87,12 @@ Lo que se deduce del diagrama:
 - **Una app en dev no puede hablar con una en prod**, ni con ninguna herramienta.
 - **Prometheus está en dos redes**: `net-obs` para leer cAdvisor, Loki, Alloy y Grafana, y `net-tools` para leer Jenkins y llegar al host.
 - **`net-obs` es interna**: Loki y cAdvisor no tienen salida a internet.
+- **Las apps ven las bases de datos de su ambiente y nada más**: `net-db-dev` y `net-db-prod` son internas y no se cruzan. Ni NPM ni `cloudflared` están en ellas. Todas las apps de un ambiente comparten red con sus servidores de base de datos; cada una entra con su propio usuario, limitado a su base (`./mercury db create`).
 
 ### Reglas al añadir un servicio
 
 1. Interfaz web: conéctalo a `net-tools` y crea su Proxy Host en NPM. No uses `ports:`.
-2. Base de datos: red propia `internal: true` dentro del stack, siguiendo `stacks/devops/sonarqube/compose.yaml`.
+2. Base de datos de una herramienta: red propia `internal: true` dentro del stack, siguiendo `stacks/devops/sonarqube/compose.yaml`. Base de datos de una app: una base en los servidores compartidos de `stacks/data/db-<env>` (`./mercury db create`), no un contenedor propio.
 3. Protocolo que no es HTTP (DNS, SMB, MQTT): publica el puerto ligado a `LAN_IP` y añade la regla UFW limitada a `LAN_SUBNET`.
 4. Nunca conectes nada a `mercury-jenkins`.
 5. Una red compartida nueva se crea en `host/04-networks.sh` y se declara `external` en cada compose.
@@ -98,6 +110,7 @@ Lo que se deduce del diagrama:
 | 81 tcp | `LAN_IP` | Panel de NPM | Solo `LAN_SUBNET` |
 | 53 tcp y udp | `LAN_IP` | AdGuard | Solo `LAN_SUBNET` |
 | 445 tcp | `LAN_IP` | Samba | Solo `LAN_SUBNET` |
+| 5432, 3306, 1433 tcp | `LAN_IP` | PostgreSQL, MariaDB y SQL Server de dev (`db-dev`), cuando están encendidos | Solo `LAN_SUBNET`. Los de prod no publican puertos |
 | 9100 tcp | host | node-exporter | Solo redes de Docker (`10.200.0.0/16`) |
 | 9323 tcp | host | Métricas del daemon de Docker | Solo redes de Docker (`10.200.0.0/16`) |
 
@@ -114,6 +127,8 @@ Puertos internos de cada servicio, que solo importan para los Proxy Hosts y para
 | `sonarqube` | 9000 | `grafana` | 3000 |
 | `portainer` | 9000 | `socket-proxy` | 2375 |
 | apps | 8080 | `sonar-db` | 5432 |
+| `pg-<env>` | 5432 | `mariadb-<env>` | 3306 |
+| `mssql-<env>` | 1433 | | |
 
 ## DNS interno
 
@@ -248,6 +263,7 @@ Se crean a mano en el panel de NPM y viven en `DATA_DIR/npm`, que entra en el ba
 | `allow 80/tcp`, `allow 443/tcp` | NPM |
 | `allow from LAN_SUBNET` a `81,445/tcp` | Panel de NPM y Samba |
 | `allow from LAN_SUBNET` a `53` | AdGuard |
+| `allow from LAN_SUBNET` a `1433,3306,5432/tcp` | Bases de datos de dev (`db-dev`) desde Windows |
 | `allow from 10.200.0.0/16` a `9100,9323/tcp` | Prometheus lee node-exporter y el daemon de Docker |
 
 UFW protege los servicios del host. No protege los puertos que publica Docker; ver [06-arquitectura.md](06-arquitectura.md#modelo-de-seguridad).

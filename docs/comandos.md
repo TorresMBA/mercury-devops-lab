@@ -53,6 +53,19 @@ Un `<destino>` es un stack (`jenkins`), un grupo (`devops`) o `all`. Un `<stack>
 | `./mercury deploy <app> <dev\|prod> <tag>` | Despliega la imagen `apps/<app>:<tag>` del registry. Sirve para volver a una versión anterior |
 | `./mercury undeploy <app> <dev\|prod>` | Elimina el contenedor de la app |
 
+### Bases de datos
+
+`<env>`: `dev` o `prod`. `<motor>`: `postgres`, `mariadb` o `mssql`.
+
+| Comando | Qué hace |
+|---|---|
+| `./mercury db ps` | Estado de los servidores de base de datos y qué motores arrancan con `up all` |
+| `./mercury db up <env> <motor>` | Enciende ese servidor. Sigue encendido, también tras reiniciar, hasta `db down` |
+| `./mercury db down <env> <motor\|all>` | Lo detiene y elimina el contenedor. Los datos se conservan |
+| `./mercury db create <env> <motor> <app>` | Crea la base y el usuario de la app y añade su conexión a `APPS_DIR/<env>/<app>.env` |
+| `./mercury db drop <env> <motor> <app>` | Borra la base y el usuario de la app. Pide escribir su nombre |
+| `./mercury db shell <env> <motor> [app]` | Consola SQL de administrador; la vía de acceso a prod |
+
 ### Registry
 
 | Comando | Qué hace |
@@ -78,7 +91,7 @@ Preparan y configuran Ubuntu. Se ejecutan con `sudo` y se pueden repetir sin efe
 | `sudo ./host/01-base.sh` | Instalación | Paquetes, kernel, swap, usuario `deployer`, SSH y firewall |
 | `sudo ./host/02-disks.sh` | Instalación, y al añadir un stack con datos | Monta el HDD y crea los directorios de datos con su dueño |
 | `sudo ./host/03-docker.sh` | Instalación, y al cambiar `host/files/daemon.json` | Instala Docker y aplica `daemon.json` |
-| `sudo ./host/04-networks.sh` | Instalación, y al añadir una red compartida | Crea las redes `net-tools`, `net-apps-dev`, `net-apps-prod` y `net-obs` |
+| `sudo ./host/04-networks.sh` | Instalación, y al añadir una red compartida | Crea las redes `net-tools`, `net-apps-dev`, `net-apps-prod`, `net-obs`, `net-db-dev` y `net-db-prod` |
 | `sudo bash host/05-backup.sh` | Una vez, tras levantar los stacks | Crea el repositorio de backups y programa el backup diario |
 | `sudo bash host/06-dns.sh` | Una vez, tras `./mercury up dns` | Hace que el servidor y sus contenedores resuelvan `*.int.<dominio>` con AdGuard |
 | `sudo bash host/07-cleanup.sh` | Una vez, tras levantar los stacks | Programa la limpieza semanal de disco |
@@ -100,7 +113,7 @@ Los dos llevan `Persistent=true`: si el servidor estaba apagado a esa hora, la t
 
 ### Backup (`mercury-backup`)
 
-1. Exporta un volcado de la base de datos de SonarQube, si está en marcha.
+1. Exporta un volcado de la base de datos de SonarQube y de cada servidor de base de datos de prod (`pg-prod`, `mariadb-prod`, `mssql-prod`), de los que estén en marcha. Las bases de dev no se copian.
 2. Copia con restic a `HDD_DIR/backups/restic`: `DATA_DIR`, `APPS_DIR`, todos los `.env` y el `credentials.env` de Jenkins.
 3. Conserva 7 copias diarias y 4 semanales, y borra las anteriores.
 
@@ -162,7 +175,7 @@ No son del proyecto, pero se usan a diario junto a los anteriores.
 
 | Comando | Qué hace |
 |---|---|
-| `bash -n mercury pipelines/lib/mercury-ci host/*.sh` | Comprueba la sintaxis de los scripts |
+| `for f in mercury pipelines/lib/mercury-ci host/*.sh; do bash -n "$f"; done` | Comprueba la sintaxis de los scripts (`bash -n` con varios archivos solo revisa el primero) |
 | `npx --yes js-yaml <archivo>.yaml` | Comprueba la sintaxis de un YAML |
 
 La prueba en seco de los scripts con un `docker` simulado está en [scripts/02-mercury.md](scripts/02-mercury.md#probar-sin-docker) y [scripts/03-mercury-ci.md](scripts/03-mercury-ci.md#probar-sin-docker).
@@ -172,6 +185,7 @@ La prueba en seco de los scripts con un `docker` simulado está en [scripts/02-m
 | Cambié | Ejecuto |
 |---|---|
 | `compose.yaml` o `.env` de un stack | `./mercury up <stack>` |
+| `compose.yaml` o `.env` de `db-dev` / `db-prod` | `./mercury db up <env> <motor>` por cada motor encendido (`up` solo recrea los de `COMPOSE_PROFILES`) |
 | `stacks/devops/jenkins/casc/*.yaml` | `./mercury restart jenkins` |
 | `plugins.txt` o `JENKINS_VERSION` | `./mercury build jenkins && ./mercury up jenkins` |
 | `pipelines/lib/mercury-ci` o `apps/_templates/` | `./mercury agents` |

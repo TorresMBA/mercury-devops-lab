@@ -1,0 +1,79 @@
+# Servidores de base de datos de prod, compartidos por todas las apps (una base y un usuario por app).
+# Cada motor va en su perfil: nada arranca con `./mercury up all` salvo los listados en
+# COMPOSE_PROFILES del .env. A demanda: ./mercury db up prod <postgres|mariadb|mssql>
+# Sin puertos publicados: solo las apps de prod (net-db-prod) y ./mercury db shell llegan a ellos.
+name: db-prod
+
+x-db: &db
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  postgres:
+    <<: *db
+    image: postgres:${POSTGRES_VERSION}
+    container_name: pg-prod
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/db/prod/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - db
+    mem_limit: 512m
+
+  mariadb:
+    <<: *db
+    image: mariadb:${MARIADB_VERSION}
+    container_name: mariadb-prod
+    profiles: ["mariadb"]
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/db/prod/mariadb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - db
+    mem_limit: 512m
+
+  mssql:
+    <<: *db
+    image: mcr.microsoft.com/mssql/server:${MSSQL_VERSION}
+    container_name: mssql-prod
+    profiles: ["mssql"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: ${MSSQL_PID}
+      # Por debajo de mem_limit: SQL Server reserva memoria fuera de su buffer pool
+      MSSQL_MEMORY_LIMIT_MB: "1536"
+      TZ: ${TZ}
+    volumes:
+      - ${DATA_DIR}/db/prod/mssql:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q 'SELECT 1' -o /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    networks:
+      - db
+    mem_limit: 2g
+
+networks:
+  # Interna: la comparten las apps de prod (compose.deploy.yaml)
+  db:
+    name: net-db-prod
+    external: true

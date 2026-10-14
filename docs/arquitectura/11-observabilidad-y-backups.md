@@ -131,7 +131,7 @@ flowchart TB
   timer["mercury-backup.timer<br/>diario a las 03:30"] --> svc["mercury-backup.service<br/>prioridad baja de CPU y disco"]
   manual["./mercury backup"] --> script
   svc --> script["host/backup.sh"]
-  script --> dump["1. pg_dump de sonar-db<br/>a DATA_DIR/sonarqube/db-dump.sql.gz"]
+  script --> dump["1. Volcados: sonar-db, pg-prod, mariadb-prod, mssql-prod<br/>(solo los que estén en marcha)"]
   dump --> backup["2. restic backup"]
   backup --> forget["3. restic forget<br/>7 diarios, 4 semanales, con prune"]
   backup --> repo[("HDD_DIR/backups/restic<br/>cifrado y deduplicado")]
@@ -142,12 +142,15 @@ flowchart TB
 | `DATA_DIR` | Estado de todos los servicios: jobs de Jenkins, Proxy Hosts y certificados de NPM, configuración de AdGuard, Grafana, usuarios del registry |
 | `APPS_DIR` | Configuración y secretos de las apps |
 | El volcado de la base de datos de SonarQube | Los archivos de una base de datos en marcha no son una copia consistente |
+| Los volcados de las bases de prod | `pg_dumpall` y `mariadb-dump` en `DATA_DIR/db/prod/dumps`; un `.bak` por base de SQL Server en `DATA_DIR/db/prod/mssql/backup` |
 | `.env` raíz y `stacks/*/*/.env` | Configuración no versionada |
 | `stacks/devops/jenkins/credentials.env` | Tokens de git |
 
 | No se copia | Por qué |
 |---|---|
 | `DATA_DIR/sonarqube/db` | Se sustituye por el volcado |
+| `DATA_DIR/db/prod/{postgres,mariadb}`, `mssql/data` y `mssql/log` | Se sustituyen por los volcados |
+| `DATA_DIR/db/dev` | Las bases de dev son desechables |
 | `DATA_DIR/sonarqube/data/es*` y `logs` | Índices de búsqueda y logs: se regeneran |
 | `DATA_DIR/adguard/work` | Estadísticas y caché |
 | `DATA_DIR/jenkins/caches` y `war` | Se regeneran |
@@ -160,6 +163,7 @@ Lo que hay que saber antes de necesitarlo:
 - **El HDD está en la misma máquina.** Protege de un borrado accidental o de la muerte del SSD, no de un robo o una subida de tensión. Un segundo destino remoto está pendiente.
 - **`Persistent=true`** en el timer: si el servidor estaba apagado a las 03:30, la copia se hace al arrancar.
 - **El volcado de SonarQube solo se hace si `sonar-db` está en marcha.** Con el stack detenido, se copia el último volcado que hubiera.
-- **Una base de datos nueva** (la de una app, por ejemplo) necesita su propio volcado en `host/backup.sh`, siguiendo el de SonarQube.
+- **Las bases de las apps en prod se vuelcan solas** si su servidor está en marcha a la hora del backup; una base nueva creada con `db create` entra sin tocar nada. Un servidor apagado conserva su último volcado. Un volcado que falla deja un aviso en el log del servicio, pero no detiene el resto del backup.
+- **Una base de datos fuera de `stacks/data`** (la de una herramienta nueva) necesita su propio volcado en `host/backup.sh`, siguiendo el de SonarQube.
 
 Comandos de consulta y restauración: [04-operacion-y-futuro.md](../instalacion/04-operacion-y-futuro.md#backups).

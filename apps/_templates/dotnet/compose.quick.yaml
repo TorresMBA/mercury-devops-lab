@@ -13,12 +13,20 @@ services:
     environment:
       ASPNETCORE_HTTP_PORTS: "8080"
       ASPNETCORE_ENVIRONMENT: Development
+    # Configuración de dev de la app, con la conexión de ./mercury db create (opcional)
+    env_file:
+      - path: ${APPS_DIR}/dev/${APP}.env
+        required: false
     command: ["sh", "-c", "exec dotnet \"$$(ls *.runtimeconfig.json | head -n 1 | sed 's/\\.runtimeconfig\\.json$$/.dll/')\""]
     networks:
       - apps
+      - db
     mem_limit: 512m
 
 networks:
   apps:
     name: net-apps-dev
+    external: true
+  db:
+    name: net-db-dev
     external: true

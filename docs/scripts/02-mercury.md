@@ -43,6 +43,9 @@ ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 | `RUNTIMES` | Runtimes con `compose.quick.yaml` | `quick` |
 | `AGENTS` | Catálogo `<agente>:<versión>` | `agents` |
 | `AGENT_DEFAULT` | Mapa agente → versión por defecto | `agents` |
+| `DB_ENGINES`, `DB_PREFIX`, `DB_PORT` | Motores de base de datos, prefijo de su contenedor (`pg` → `pg-dev`) y puerto | `db` |
+
+Las tres de bases de datos están junto a sus funciones, después de `valid_env`, y no al principio: solo las usa `db`. El nombre de cada motor es a la vez servicio y perfil en `stacks/data/db-<env>/compose.yaml`.
 
 Un stack que no está en `STACKS` no existe para `mercury`, aunque su carpeta esté en el repo.
 
@@ -71,6 +74,9 @@ Algunos comandos cargan además el `.env` de un stack, de la misma forma: `dns-i
 | `for_stacks <destino> <args...>` | Un destino | Llama a `compose` para cada stack. Con varios, omite los que no tienen `.env` en lugar de abortar |
 | `valid_app <nombre>` | Nombre de app | Lo valida contra `^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$` |
 | `valid_env <env>` | Ambiente | Acepta solo `dev` o `prod` |
+| `valid_engine <motor>` | Motor | Acepta solo los de `DB_ENGINES` |
+| `db_running <contenedor> <env> <motor>` | Contenedor de base de datos | Falla, sugiriendo `db up`, si no está en marcha |
+| `db_client <-i\|-it> <contenedor> <motor> [base]` | Contenedor y motor | Abre el cliente SQL de administrador (`psql`, `mariadb`, `sqlcmd`) con `docker exec`. Con `-i` lee el SQL de stdin; con `-it` es interactivo. La clave la toma `sh -c` del entorno del contenedor |
 
 Cómo resuelve `resolve_targets` un destino. Compara el argumento con cada entrada de `STACKS` de cuatro formas:
 
@@ -166,6 +172,23 @@ Si se añade un tipo nuevo de imagen propia (otro prefijo bajo `REGISTRY_HOST`),
 
 Lo ejecuta también el timer `mercury-prune.timer` (`host/07-cleanup.sh`), como root y sin opciones.
 
+## El comando `db` por dentro
+
+Es un `case` anidado sobre el subcomando. Todos validan con `valid_env` y `valid_engine` y operan sobre `data/db-<env>` a través de `compose`, que exige su `.env`.
+
+| Subcomando | Cómo lo hace |
+|---|---|
+| `up` | `--profile <motor> up -d --wait --wait-timeout 180 <motor>`. Nombrar el servicio hace que solo arranque ese, aunque `COMPOSE_PROFILES` del `.env` active otros |
+| `down` | `rm -s -f <motor>` en lugar de `down`, para no tocar los demás motores ni la red del stack. Con `all`, `--profile '*' down` |
+| `ps` | `docker ps -a` filtrado por la etiqueta `com.docker.compose.project=db-<env>`, más `COMPOSE_PROFILES` leído del `.env` con `sed` |
+| `create` | Comprueba que el contenedor está en marcha y que el `.env` de la app no tiene ya `DB_HOST`, `DATABASE_URL`, `ConnectionStrings__Default` ni `SPRING_DATASOURCE_URL`. Genera la clave (`M` + `openssl rand -hex 24`: mayúscula, minúsculas y dígitos para la política de SQL Server, sin caracteres que escapar). Pasa el SQL por stdin a `db_client -i` con un heredoc. Con `set -e`, un error de SQL detiene el script antes de escribir el `.env` |
+| `drop` | Pide escribir el nombre de la base con `read`, y ejecuta `DROP` idempotente (`IF EXISTS`). No edita el `.env` de la app |
+| `shell` | `db_client -it`, con la base de la app si se indica |
+
+Detalles de los heredocs: en el de MariaDB los acentos graves van escapados (`` \` ``), porque el heredoc sin comillas los interpretaría como sustitución de comandos. En el de SQL Server, `GO` separa el lote que crea la base del que entra en ella con `USE`.
+
+El `.env` de la app se escribe con `sudo tee -a` y se deja `1000:1000` con modo 640, porque `APPS_DIR` es del usuario `jenkins` de los agentes. Las cadenas con `;` van entre comillas simples, que el `env_file` de compose quita al leerlas.
+
 ## Añadir cosas
 
 ### Un stack
@@ -214,7 +237,7 @@ Ejemplo: un comando que acepta un grupo o `all`, en una sola línea.
 | Variables entre comillas: `"$1"`, `"${STACKS[@]}"` | Con `set -u` y nombres con espacios, sin comillas falla |
 | `local` en todas las variables de función | No contaminar el resto del script |
 | `sudo` solo en la línea que lo necesita | El script se ejecuta como el operador, no como root |
-| Sin opciones interactivas salvo las propias de la herramienta (`htpasswd` pide contraseña) | Se puede usar desde otros scripts |
+| Sin opciones interactivas salvo las propias de la herramienta (`htpasswd` pide contraseña) y la confirmación de `db drop` | Se puede usar desde otros scripts. `db drop` acepta la confirmación por stdin (`echo mi_app \| ./mercury db drop ...`) |
 
 Trampas concretas de este archivo:
 
@@ -245,6 +268,8 @@ PATH="/tmp/fake:$PATH" bash mercury agents dotnet:8.0
 ```
 
 Salida de `up jenkins`: la línea exacta de `docker compose` con los dos `--env-file`. Salida de `agents dotnet:8.0`: el `docker build` con sus `--build-arg` y los dos `docker push`.
+
+Para `db create` y `db drop`, el `docker` falso debe responder a `docker ps` con los nombres de los contenedores (`pg-dev`, `mariadb-dev`, `mssql-dev`) y volcar su stdin cuando reciba `-i`, para ver el SQL. Hace falta también un `sudo` falso que ejecute el resto de la línea, y `APPS_DIR` en el `.env` de prueba apuntando a una carpeta temporal con `dev/` y `prod/`.
 
 Límites de la prueba: el `docker` falso responde siempre con éxito, así que `published` y `ensure_base` creen que todo existe. Sirve para ver argumentos y validaciones, no el comportamiento real. La validación de verdad es en el servidor, con `./mercury config <destino>` antes de `up`.
 

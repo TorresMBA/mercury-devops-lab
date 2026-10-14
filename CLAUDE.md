@@ -13,7 +13,7 @@ El repo se edita en Windows y se ejecuta en un Ubuntu Server (clonado en `/opt/m
 No hay tests ni Docker en la máquina de desarrollo. Antes de dar un cambio por bueno:
 
 ```bash
-bash -n mercury pipelines/lib/mercury-ci host/*.sh        # sintaxis de scripts
+for f in mercury pipelines/lib/mercury-ci host/*.sh; do bash -n "$f"; done   # sintaxis (bash -n solo mira el primer archivo)
 npx --yes js-yaml stacks/<grupo>/<stack>/compose.yaml     # sintaxis YAML (un archivo)
 ```
 
@@ -37,25 +37,28 @@ Tras cambiar ciertas piezas hay que reconstruir, no basta con `up`:
 | `pipelines/lib/mercury-ci`, `apps/_templates/**`, `stacks/devops/jenkins/agents/base` | `./mercury agents` (sin filtro: reconstruye la base y los agentes ya publicados, que heredan de ella) |
 | `stacks/devops/jenkins/agents/<agente>`, lista `AGENTS` de `mercury` | `./mercury agents <agente>[:<versión>]` (y `./mercury restart jenkins` si hay plantilla nueva) |
 | `stacks/core/dns/AdGuardHome.yaml.tmpl` | Solo afecta a instalaciones nuevas: `dns-init` no sobrescribe una configuración existente |
+| `stacks/data/db-*/compose.yaml` o su `.env` | `./mercury db up <env> <motor>` por motor encendido (`up` solo alcanza a los de `COMPOSE_PROFILES`); las claves de administrador solo se aplican al inicializar el directorio de datos |
 
-Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular los permisos de `socket-proxy` para builds, su plantilla propia de HAProxy (`socket-proxy/haproxy.cfg.template`, keep-alive de 1h) con `errorDuration` en la nube Docker, el arranque de AdGuard desde la plantilla, `host/06-dns.sh`, las credenciales por dominio de Jenkins (`casc/credentials.yaml` con `credentials.env`), las carpetas de Jenkins por job-dsl, el runtime `spa` y los agentes versionados (anclas `x-` y `<<:` en `casc/jenkins.yaml`, `javaExe` del agente, `RUNTIME_VERSION` en `mercury-ci package`, el plugin `lockable-resources` en `manual-release`, `disableConcurrentBuilds(abortPrevious: true)`), las cachés de dependencias de los agentes (volúmenes `mercury-cache-*` en `mounts`, su dueño, `MAVEN_ARGS`), el stage `Análisis` en paralelo con sus `timeout` y `archiveArtifacts`, `dotnet publish --no-build`, las cachés `RUN --mount=type=cache` de `flask` y `node`, el marcador de Trivy, `trivy-fs` con la caché de Maven y `--offline-scan`, `./mercury prune` con `host/07-cleanup.sh` y el bloque `builder.gc` de `daemon.json`. En el servidor ya funcionan `edge`, `registry` y `jenkins`.
+Lo que no se haya ejecutado en el servidor debe declararse como no verificado; en particular los permisos de `socket-proxy` para builds, su plantilla propia de HAProxy (`socket-proxy/haproxy.cfg.template`, keep-alive de 1h) con `errorDuration` en la nube Docker, el arranque de AdGuard desde la plantilla, `host/06-dns.sh`, las credenciales por dominio de Jenkins (`casc/credentials.yaml` con `credentials.env`), las carpetas de Jenkins por job-dsl, el runtime `spa` y los agentes versionados (anclas `x-` y `<<:` en `casc/jenkins.yaml`, `javaExe` del agente, `RUNTIME_VERSION` en `mercury-ci package`, el plugin `lockable-resources` en `manual-release`, `disableConcurrentBuilds(abortPrevious: true)`), las cachés de dependencias de los agentes (volúmenes `mercury-cache-*` en `mounts`, su dueño, `MAVEN_ARGS`), el stage `Análisis` en paralelo con sus `timeout` y `archiveArtifacts`, `dotnet publish --no-build`, las cachés `RUN --mount=type=cache` de `flask` y `node`, el marcador de Trivy, `trivy-fs` con la caché de Maven y `--offline-scan`, `./mercury prune` con `host/07-cleanup.sh` y el bloque `builder.gc` de `daemon.json`, y todo `stacks/data` con `./mercury db` (perfiles vía `COMPOSE_PROFILES`, `--profile '*'`, red interna más `publish`, `no-new-privileges` en MariaDB y SQL Server, healthchecks, SQL por stdin a `sqlcmd`, etiquetas `MARIADB_VERSION`/`MSSQL_VERSION`, `env_file` en `compose.quick.yaml`, volcados de prod en `host/backup.sh`). En el servidor ya funcionan `edge`, `registry` y `jenkins`.
 
 ## Arquitectura
 
 ### Redes: el aislamiento es por red, no por firewall
 
-Los stacks viven en `stacks/<grupo>/<stack>` (`core`, `devops`, `monitoring`, `storage`). El grupo solo organiza: cada stack es un proyecto compose independiente cuyo `name:` es el nombre corto, único entre grupos. La lista ordenada `STACKS` de `mercury` es la fuente de verdad de qué existe y en qué orden arranca.
+Los stacks viven en `stacks/<grupo>/<stack>` (`core`, `devops`, `monitoring`, `storage`, `data`). El grupo solo organiza: cada stack es un proyecto compose independiente cuyo `name:` es el nombre corto, único entre grupos. La lista ordenada `STACKS` de `mercury` es la fuente de verdad de qué existe y en qué orden arranca.
 
 Redes externas creadas por `host/04-networks.sh` y declaradas `external` en cada compose:
 
 - `net-tools`: herramientas internas. Nginx Proxy Manager (NPM) las enruta por nombre de contenedor.
 - `net-apps-dev` / `net-apps-prod`: apps desplegadas. `cloudflared` solo está en `net-apps-prod` y apunta directo a la app (no pasa por NPM), así que internet nunca alcanza las herramientas. Es una decisión del usuario: no enrutar el túnel por NPM.
 - `net-obs`: interna, compartida por los tres stacks de `monitoring`.
+- `net-db-dev` / `net-db-prod`: internas; las apps de cada ambiente (`compose.deploy.yaml` y los `compose.quick.yaml`) con los servidores de base de datos de `stacks/data/db-<env>`.
 
 Reglas que se derivan y que hay que respetar al añadir servicios:
 
-- Solo NPM (80/443, admin :81 en la IP LAN), AdGuard (:53 en la IP LAN) y Samba (:445 en la IP LAN) publican puertos. Docker salta UFW para los puertos publicados, por eso no se usa `ports:` en nada más.
-- Las bases de datos van en una red propia `internal: true` del stack (modelo: `stacks/devops/sonarqube`).
+- Solo NPM (80/443, admin :81 en la IP LAN), AdGuard (:53 en la IP LAN), Samba (:445 en la IP LAN) y los servidores de `db-dev` (:5432, :3306, :1433 en la IP LAN, para Windows) publican puertos. Docker salta UFW para los puertos publicados, por eso no se usa `ports:` en nada más; `db-prod` no publica.
+- La base de datos de una herramienta va en una red propia `internal: true` del stack (modelo: `stacks/devops/sonarqube`). Las de las apps no llevan contenedor propio: son una base y un usuario por app en los servidores compartidos de `stacks/data/db-<env>` (PostgreSQL, MariaDB, SQL Server), creados con `./mercury db create`, que escribe la conexión en `APPS_DIR/<env>/<app>.env`.
+- Cada motor de `db-dev`/`db-prod` va en su perfil de compose (servicio y perfil se llaman igual: `postgres`, `mariadb`, `mssql`): solo arranca con `up all` si está en `COMPOSE_PROFILES` del `.env` del stack; si no, a demanda con `./mercury db up <env> <motor>`. Una red `internal` no publica puertos: por eso `db-dev` añade la red `publish` del proyecto.
 - La red `mercury-jenkins` (controller, `socket-proxy`, agentes) da acceso casi root al Docker del host: no se comparte con ningún otro servicio.
 - Todas las redes salen de `10.200.0.0/16` (`host/files/daemon.json`); la regla UFW que deja a Prometheus leer node-exporter y el daemon depende de ese rango (`DOCKER_POOL` en `host/_common.sh`).
 

@@ -16,6 +16,8 @@ STACKS=(
   monitoring/logs
   monitoring/grafana
   storage/files
+  data/db-dev
+  data/db-prod
 )
 JENKINS_DIR="$ROOT/stacks/devops/jenkins"
 DNS_DIR="$ROOT/stacks/core/dns"
@@ -70,6 +72,15 @@ Apps:
                         runtimes: dotnet spring flask node static
   deploy <app> <dev|prod> <tag>   Despliega la imagen apps/<app>:<tag> del registry
   undeploy <app> <dev|prod>       Elimina el contenedor de la app
+
+Bases de datos (stacks db-dev y db-prod; motores: postgres mariadb mssql):
+  db ps                           Estado de los servidores y motores que arrancan con up all
+  db up <env> <motor>             Levanta ese servidor; sigue encendido hasta db down
+  db down <env> <motor|all>       Lo detiene y elimina el contenedor (los datos se conservan)
+  db create <env> <motor> <app>   Crea la base y el usuario de la app y escribe su conexión
+                                  en APPS_DIR/<env>/<app>.env
+  db drop <env> <motor> <app>     Borra la base y el usuario de la app (pide confirmación)
+  db shell <env> <motor> [app]    Consola SQL como administrador (en la base de la app)
 
 Registry:
   registry-user <user>  Crea o actualiza un usuario (htpasswd)
@@ -146,6 +157,32 @@ valid_app() {
 
 valid_env() {
   [[ "$1" == dev || "$1" == prod ]] || die "ambiente inválido: '$1' (dev o prod)"
+}
+
+# Motores de base de datos: el nombre es a la vez servicio y perfil de stacks/data/db-<env>
+DB_ENGINES=(postgres mariadb mssql)
+declare -A DB_PREFIX=([postgres]=pg [mariadb]=mariadb [mssql]=mssql)
+declare -A DB_PORT=([postgres]=5432 [mariadb]=3306 [mssql]=1433)
+
+valid_engine() {
+  [[ " ${DB_ENGINES[*]} " == *" $1 "* ]] || die "motor inválido: '$1' (${DB_ENGINES[*]})"
+}
+
+db_running() { # db_running <contenedor> <env> <motor>
+  docker ps --format '{{.Names}}' | grep -qx "$1" \
+    || die "$1 no está en marcha (./mercury db up $2 $3)"
+}
+
+# Cliente SQL del motor como administrador, dentro de su contenedor. Las claves se leen
+# del entorno del contenedor, así no pasan por la línea de comandos del host.
+db_client() { # db_client <-i|-it> <contenedor> <motor> [base]
+  local tty="$1" ctr="$2" engine="$3" base="${4:-}"
+  case "$engine" in
+    postgres) docker exec "$tty" "$ctr" psql -v ON_ERROR_STOP=1 -U postgres -d "${base:-postgres}" ;;
+    mariadb)  docker exec "$tty" -e DB="$base" "$ctr" sh -c 'exec mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" $DB' ;;
+    mssql)    docker exec "$tty" -e DB="${base:-master}" "$ctr" sh -c \
+                'exec /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -d "$DB"' ;;
+  esac
 }
 
 cmd="$1"; shift
@@ -398,6 +435,182 @@ case "$cmd" in
     [[ $# -eq 2 ]] || die "uso: mercury undeploy <app> <dev|prod>"
     valid_app "$1"; valid_env "$2"
     docker compose -p "$1-$2" down
+    ;;
+
+  db)
+    [[ $# -ge 1 ]] || die "uso: mercury db <ps|up|down|create|drop|shell> ... (ver ./mercury help)"
+    sub="$1"; shift
+    case "$sub" in
+      ps)
+        for env in dev prod; do
+          envfile="$ROOT/stacks/data/db-$env/.env"
+          if [[ ! -f "$envfile" ]]; then
+            echo "-- db-$env: sin .env"
+            continue
+          fi
+          defaults="$(sed -n 's/^COMPOSE_PROFILES=//p' "$envfile" | tail -n 1)"
+          echo "-- db-$env (arrancan con up all: ${defaults:-ninguno})"
+          docker ps -a --filter "label=com.docker.compose.project=db-$env" \
+            --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+        done
+        ;;
+
+      up)
+        [[ $# -eq 2 ]] || die "uso: mercury db up <dev|prod> <motor>"
+        valid_env "$1"; valid_engine "$2"
+        # El servicio se llama como su perfil; restart: unless-stopped lo mantiene tras reiniciar
+        compose "data/db-$1" --profile "$2" up -d --wait --wait-timeout 180 "$2"
+        ;;
+
+      down)
+        [[ $# -eq 2 ]] || die "uso: mercury db down <dev|prod> <motor|all>"
+        valid_env "$1"
+        if [[ "$2" == all ]]; then
+          compose "data/db-$1" --profile '*' down
+        else
+          valid_engine "$2"
+          compose "data/db-$1" --profile "$2" rm -s -f "$2"
+        fi
+        ;;
+
+      create)
+        [[ $# -eq 3 ]] || die "uso: mercury db create <dev|prod> <motor> <app>"
+        env="$1"; engine="$2"; app="$3"
+        valid_env "$env"; valid_engine "$engine"; valid_app "$app"
+        ctr="${DB_PREFIX[$engine]}-$env"
+        db_running "$ctr" "$env" "$engine"
+        # Base y usuario se llaman como la app, con _ en lugar de - (MariaDB y SQL Server
+        # exigirían comillas para el guion)
+        ident="${app//-/_}"
+        port="${DB_PORT[$engine]}"
+        file="$APPS_DIR/$env/$app.env"
+        sudo test -d "$APPS_DIR/$env" || die "no existe $APPS_DIR/$env (ejecuta: sudo bash host/02-disks.sh)"
+        if sudo test -f "$file" && sudo grep -qE '^(DB_HOST|DATABASE_URL|ConnectionStrings__Default|SPRING_DATASOURCE_URL)=' "$file"; then
+          die "$file ya tiene una conexión de base de datos: quítala antes de crear otra"
+        fi
+        # Hexadecimal con una mayúscula delante: cumple la política de claves de SQL Server
+        # y no hay que escapar nada en URLs ni cadenas de conexión
+        pass="M$(openssl rand -hex 24)"
+
+        case "$engine" in
+          postgres)
+            db_client -i "$ctr" "$engine" <<EOF
+CREATE ROLE "$ident" LOGIN PASSWORD '$pass';
+CREATE DATABASE "$ident" OWNER "$ident";
+REVOKE ALL ON DATABASE "$ident" FROM PUBLIC;
+EOF
+            dotnet="Host=$ctr;Port=$port;Database=$ident;Username=$ident;Password=$pass"
+            jdbc="jdbc:postgresql://$ctr:$port/$ident"
+            url="postgresql://$ident:$pass@$ctr:$port/$ident"
+            ;;
+          mariadb)
+            db_client -i "$ctr" "$engine" <<EOF
+CREATE DATABASE \`$ident\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER '$ident'@'%' IDENTIFIED BY '$pass';
+GRANT ALL PRIVILEGES ON \`$ident\`.* TO '$ident'@'%';
+EOF
+            dotnet="Server=$ctr;Port=$port;Database=$ident;User=$ident;Password=$pass"
+            jdbc="jdbc:mariadb://$ctr:$port/$ident"
+            url="mysql://$ident:$pass@$ctr:$port/$ident"
+            ;;
+          mssql)
+            db_client -i "$ctr" "$engine" <<EOF
+CREATE LOGIN [$ident] WITH PASSWORD = '$pass';
+CREATE DATABASE [$ident];
+GO
+USE [$ident];
+CREATE USER [$ident] FOR LOGIN [$ident];
+ALTER ROLE db_owner ADD MEMBER [$ident];
+EOF
+            dotnet="Server=$ctr,$port;Database=$ident;User Id=$ident;Password=$pass;TrustServerCertificate=True"
+            jdbc="jdbc:sqlserver://$ctr:$port;databaseName=$ident;encrypt=true;trustServerCertificate=true"
+            url="mssql://$ident:$pass@$ctr:$port/$ident"
+            ;;
+        esac
+
+        # Las mismas credenciales en los formatos que esperan los runtimes: genéricas,
+        # .NET (ConnectionStrings:Default), Spring y DATABASE_URL (Flask, Node)
+        {
+          echo
+          echo "# Base de datos: ./mercury db create $env $engine $app"
+          echo "DB_ENGINE=$engine"
+          echo "DB_HOST=$ctr"
+          echo "DB_PORT=$port"
+          echo "DB_NAME=$ident"
+          echo "DB_USER=$ident"
+          echo "DB_PASSWORD=$pass"
+          echo "ConnectionStrings__Default='$dotnet'"
+          echo "SPRING_DATASOURCE_URL='$jdbc'"
+          echo "SPRING_DATASOURCE_USERNAME=$ident"
+          echo "SPRING_DATASOURCE_PASSWORD=$pass"
+          echo "DATABASE_URL=$url"
+        } | sudo tee -a "$file" >/dev/null
+        # UID 1000 = usuario jenkins de los agentes, que lee este archivo al desplegar
+        sudo chown 1000:1000 "$file"
+        sudo chmod 640 "$file"
+
+        echo "Creada la base $ident en $ctr. Conexión añadida a $file"
+        echo "Las apps leen su .env al crear el contenedor: redespliega $app-$env para que la use."
+        if [[ "$env" == dev ]]; then
+          echo "Desde Windows: servidor db-dev.$INT_DOMAIN, puerto $port, base $ident, usuario $ident, clave $pass"
+        fi
+        ;;
+
+      drop)
+        [[ $# -eq 3 ]] || die "uso: mercury db drop <dev|prod> <motor> <app>"
+        env="$1"; engine="$2"; app="$3"
+        valid_env "$env"; valid_engine "$engine"; valid_app "$app"
+        ctr="${DB_PREFIX[$engine]}-$env"
+        db_running "$ctr" "$env" "$engine"
+        ident="${app//-/_}"
+        read -r -p "Se borrarán la base y el usuario $ident de $ctr con todos sus datos. Escribe $ident para confirmar: " answer
+        [[ "$answer" == "$ident" ]] || die "cancelado"
+        case "$engine" in
+          postgres)
+            db_client -i "$ctr" "$engine" <<EOF
+DROP DATABASE IF EXISTS "$ident" WITH (FORCE);
+DROP ROLE IF EXISTS "$ident";
+EOF
+            ;;
+          mariadb)
+            db_client -i "$ctr" "$engine" <<EOF
+DROP DATABASE IF EXISTS \`$ident\`;
+DROP USER IF EXISTS '$ident'@'%';
+EOF
+            ;;
+          mssql)
+            db_client -i "$ctr" "$engine" <<EOF
+IF DB_ID(N'$ident') IS NOT NULL
+BEGIN
+  ALTER DATABASE [$ident] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+  DROP DATABASE [$ident];
+END
+GO
+IF SUSER_ID(N'$ident') IS NOT NULL DROP LOGIN [$ident];
+EOF
+            ;;
+        esac
+        echo "Borrada la base $ident de $ctr."
+        echo "Quita su bloque de conexión de $APPS_DIR/$env/$app.env (sudo nano) antes de redesplegar."
+        ;;
+
+      shell)
+        [[ $# -eq 2 || $# -eq 3 ]] || die "uso: mercury db shell <dev|prod> <motor> [app]"
+        valid_env "$1"; valid_engine "$2"
+        ctr="${DB_PREFIX[$2]}-$1"
+        db_running "$ctr" "$1" "$2"
+        base=""
+        if [[ $# -eq 3 ]]; then
+          valid_app "$3"
+          base="${3//-/_}"
+        fi
+        db_client -it "$ctr" "$2" "$base"
+        ;;
+
+      *)
+        die "subcomando desconocido: db $sub (ver ./mercury help)"
+        ;;
+    esac
     ;;
 
   registry-user)

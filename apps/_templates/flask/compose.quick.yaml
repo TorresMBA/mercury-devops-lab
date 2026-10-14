@@ -15,12 +15,20 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
       APP_MODULE: app:app
+    # Configuración de dev de la app, con la conexión de ./mercury db create (opcional)
+    env_file:
+      - path: ${APPS_DIR}/dev/${APP}.env
+        required: false
     command: ["sh", "-c", "pip install --no-cache-dir -r requirements.txt gunicorn && exec gunicorn --bind 0.0.0.0:8080 --workers 2 \"$$APP_MODULE\""]
     networks:
       - apps
+      - db
     mem_limit: 512m
 
 networks:
   apps:
     name: net-apps-dev
+    external: true
+  db:
+    name: net-db-dev
     external: true

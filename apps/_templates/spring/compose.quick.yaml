@@ -14,12 +14,20 @@ services:
       SERVER_PORT: "8080"
       SPRING_PROFILES_ACTIVE: dev
       JAVA_OPTS: -XX:MaxRAMPercentage=75.0
+    # Configuración de dev de la app, con la conexión de ./mercury db create (opcional)
+    env_file:
+      - path: ${APPS_DIR}/dev/${APP}.env
+        required: false
     command: ["sh", "-c", "exec java $$JAVA_OPTS -jar \"$$(ls *.jar | head -n 1)\""]
     networks:
       - apps
+      - db
     mem_limit: 768m
 
 networks:
   apps:
     name: net-apps-dev
+    external: true
+  db:
+    name: net-db-dev
     external: true

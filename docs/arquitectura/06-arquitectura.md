@@ -128,8 +128,12 @@ Piezas que actúan como fuente de verdad y de las que dependen otras:
 | `monitoring` | `logs` | `loki`, `alloy` | `net-obs` | ninguno | `HDD_DIR/loki`, `DATA_DIR/alloy` |
 | `monitoring` | `grafana` | `grafana` | `net-tools`, `net-obs` | ninguno | `DATA_DIR/grafana` |
 | `storage` | `files` | `samba` | red por defecto del proyecto | `LAN_IP:445` | `INBOX_DIR` |
+| `data` | `db-dev` | `pg-dev`, `mariadb-dev`, `mssql-dev` (un perfil cada uno) | `net-db-dev`, `publish` del proyecto | `LAN_IP:5432`, `:3306`, `:1433` | `DATA_DIR/db/dev` |
+| `data` | `db-prod` | `pg-prod`, `mariadb-prod`, `mssql-prod` (un perfil cada uno) | `net-db-prod` | ninguno | `DATA_DIR/db/prod` |
 
 El orden de arranque de `./mercury up all` es el de la lista `STACKS`: primero DNS y proxy, luego registry (Jenkins descarga de él las imágenes de agente), después el resto.
+
+Los servidores de base de datos de `data` solo arrancan con `up all` si su motor está en `COMPOSE_PROFILES` del `.env` del stack. Si no, se encienden a demanda con `./mercury db up <env> <motor>` y, por `restart: unless-stopped`, siguen encendidos (también tras reiniciar el host) hasta `./mercury db down`. Ver [03-despliegues.md](../instalacion/03-despliegues.md#base-de-datos-de-una-app).
 
 ## Configuración en dos niveles
 
@@ -165,7 +169,7 @@ La referencia completa de variables está en [12-referencia.md](12-referencia.md
 
 | Variable | Ruta por defecto | Disco | Contenido |
 |---|---|---|---|
-| `DATA_DIR` | `/srv/mercury/data` | SSD | Estado de los servicios: Jenkins, SonarQube y su base de datos, NPM y certificados, AdGuard, Grafana, Portainer, usuarios del registry |
+| `DATA_DIR` | `/srv/mercury/data` | SSD | Estado de los servicios: Jenkins, SonarQube y su base de datos, NPM y certificados, AdGuard, Grafana, Portainer, usuarios del registry. Bases de datos de las apps en `db/<env>/<motor>` |
 | `APPS_DIR` | `/srv/mercury/apps` | SSD | Un archivo `<env>/<app>.env` por app y ambiente, con su configuración y secretos |
 | `INBOX_DIR` | `/srv/mercury/sftp/inbox` | SSD | Compilados del canal manual |
 | `HDD_DIR` | `/mnt/hdd/mercury` | HDD | Lo voluminoso y regenerable: capas del registry, métricas, logs. También los backups |
@@ -174,7 +178,8 @@ La referencia completa de variables está en [12-referencia.md](12-referencia.md
 
 | UID:GID | Quién | Directorios |
 |---|---|---|
-| `0:0` | root | NPM, registry, Portainer, AdGuard, Alloy, base de datos de SonarQube, backups |
+| `0:0` | root | NPM, registry, Portainer, AdGuard, Alloy, base de datos de SonarQube, PostgreSQL y MariaDB de `data` (la imagen reasigna el dueño al arrancar), backups |
+| `10001:0` | `mssql` | `DATA_DIR/db/<env>/mssql` |
 | `1000:1000` | `jenkins` (controller y agentes), `sonarqube` | `DATA_DIR/jenkins`, `DATA_DIR/sonarqube/{data,extensions,logs}`, `APPS_DIR` |
 | `472:472` | `grafana` | `DATA_DIR/grafana` |
 | `65534:65534` | `nobody` (Prometheus) | `HDD_DIR/prometheus` |
@@ -205,6 +210,9 @@ Todo servicio lleva `mem_limit`. La suma de límites es el peor caso, no el cons
 | `grafana` | grafana 384 MB | 0,38 GB |
 | `files` | samba 128 MB | 0,13 GB |
 | | **Servicios permanentes** | **≈ 8,5 GB** |
+| `db-dev`, `db-prod` (a demanda) | postgres 512 MB, mariadb 512 MB, mssql 2 GB, por ambiente | 0 a 3 GB cada uno |
+
+Los servidores de base de datos solo cuentan mientras están encendidos, y los seis juntos (6 GB) no caben con el resto. Lo habitual es encender solo los motores que usen las apps. SQL Server es el caro: con él encendido en los dos ambientes, apaga SonarQube.
 
 Lo que se suma durante un build:
 
@@ -227,9 +235,10 @@ Al añadir un servicio, su `mem_limit` se suma a esta tabla y a la de `README.md
 | Capa | Mecanismo | Dónde |
 |---|---|---|
 | Acceso al host | SSH solo con llave y sin root; `deployer` solo SFTP dentro de un chroot | `host/01-base.sh` |
-| Puertos del host | UFW deniega lo entrante salvo 22, 80, 443 y, desde la LAN, 53, 81 y 445 | `host/01-base.sh` |
-| Puertos de contenedores | Solo NPM, AdGuard y Samba usan `ports:`, ligados a `LAN_IP` salvo 80 y 443 | Composes de `core` y `storage` |
+| Puertos del host | UFW deniega lo entrante salvo 22, 80, 443 y, desde la LAN, 53, 81, 445, 1433, 3306 y 5432 | `host/01-base.sh` |
+| Puertos de contenedores | Solo NPM, AdGuard, Samba y las bases de datos de dev usan `ports:`, ligados a `LAN_IP` salvo 80 y 443 | Composes de `core`, `storage` y `data/db-dev` |
 | Entre contenedores | Redes separadas por función; bases de datos en red `internal` | [07-redes-y-dns.md](07-redes-y-dns.md) |
+| Bases de datos de apps | Servidor separado por ambiente; un usuario por app, limitado a su base | `stacks/data`, `./mercury db create` |
 | Internet hacia dentro | Solo el túnel, y solo hacia `net-apps-prod` | `stacks/core/edge` |
 | Docker desde Jenkins | A través de `socket-proxy`, en una red no compartida | `stacks/devops/jenkins` |
 | Contenedores | `no-new-privileges` salvo donde rompe o no está probado (Samba, cAdvisor, AdGuard) | Composes |
@@ -242,6 +251,7 @@ Límites que conviene tener presentes, porque no son evidentes:
 - **Portainer y Alloy montan el socket de Docker directamente.** Portainer es opcional y debe quedarse en la LAN con una contraseña fuerte.
 - **Todos los usuarios de Jenkins son administradores** (`loggedInUsersCanDoAnything`) y cualquier Jenkinsfile puede pedir cualquier credencial por su ID. Compartir Jenkins es confiar el servidor entero. Ver [04-operacion-y-futuro.md](../instalacion/04-operacion-y-futuro.md#jenkins-compartido).
 - **Dev y prod comparten máquina.** Los separa la red, y el límite de memoria por contenedor evita que una prueba en dev deje sin RAM a producción.
+- **Las apps de un ambiente comparten servidor de base de datos.** Cada una tiene su usuario y no puede abrir la base de otra, pero un fallo o un consumo excesivo del servidor afecta a todas las del ambiente.
 
 ## Convenciones transversales
 
@@ -251,6 +261,7 @@ Varias piezas dan estas reglas por supuestas. Romper una exige cambiar todas las
 |---|---|
 | Toda app escucha en el puerto **8080** | Dockerfiles de runtime, Proxy Hosts de NPM, hostnames del túnel |
 | El contenedor de una app se llama **`<app>-<dev\|prod>`** | `compose.deploy.yaml`, `compose.quick.yaml`, NPM, túnel, `./mercury undeploy` |
+| La base y el usuario de una app se llaman como ella, con `_` en lugar de `-` | `./mercury db create`, `db drop`, `db shell` |
 | Nombre de app: `^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$` | Validado igual en `mercury` y en `mercury-ci` |
 | Imágenes de app: `<REGISTRY_HOST>/apps/<app>:<tag>` | `mercury-ci`, `./mercury deploy` |
 | Imágenes de agente: `<REGISTRY_HOST>/agents/<agente>:<versión>` | `./mercury agents`, `casc/jenkins.yaml` |

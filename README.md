@@ -17,11 +17,15 @@ Infraestructura como código de un servidor doméstico de CI/CD sobre Docker: Je
               │            ┌── net-tools ──── jenkins, sonarqube, registry, grafana, adguard, portainer
               │            ├── net-apps-dev ─ apps dev
               └────────────┴── net-apps-prod  apps prod  ◄── único destino del túnel
+
+  apps dev  ── net-db-dev  ── pg / mariadb / mssql dev   (:5432 :3306 :1433 en la IP LAN, para Windows)
+  apps prod ── net-db-prod ── pg / mariadb / mssql prod  (sin puertos publicados)
 ```
 
 - Las herramientas solo se ven en la LAN, con HTTPS real (`*.int.<dominio>`). AdGuard Home resuelve esos nombres; no existen en el DNS público.
 - Lo público sale únicamente por el túnel de Cloudflare, que apunta directo a la app y solo alcanza la red de apps de producción.
-- Solo Nginx Proxy Manager, AdGuard (DNS) y Samba publican puertos, ligados a la LAN. El resto se alcanza por nombre de contenedor dentro de las redes de Docker.
+- Solo Nginx Proxy Manager, AdGuard (DNS), Samba y las bases de datos de dev publican puertos, ligados a la LAN. El resto se alcanza por nombre de contenedor dentro de las redes de Docker.
+- Las apps no traen su propia base de datos: hay un servidor por motor (PostgreSQL, MariaDB, SQL Server) y ambiente, con una base por app, y se encienden a demanda (`./mercury db up dev postgres`).
 
 ## Estructura
 
@@ -46,8 +50,12 @@ Infraestructura como código de un servidor doméstico de CI/CD sobre Docker: Je
 |              | `logs`       | Loki, Alloy                                                | 0,8 GB     |
 |              | `grafana`    | Grafana                                                    | 0,4 GB     |
 | `storage`    | `files`      | Samba (canal manual)                                       | 0,1 GB     |
+| `data`       | `db-dev`     | PostgreSQL, MariaDB, SQL Server (a demanda)                | 0 a 3 GB   |
+|              | `db-prod`    | PostgreSQL, MariaDB, SQL Server (a demanda)                | 0 a 3 GB   |
 
-Los límites suman unos 8,5 GB; el uso real en reposo es menor. Queda margen para dos agentes de build (hasta 2 GB cada uno) y las apps desplegadas.
+Sin las bases de datos, los límites suman unos 8,5 GB; el uso real en reposo es menor. Queda margen para dos agentes de build (hasta 2 GB cada uno) y las apps desplegadas.
+
+Cada servidor de base de datos cuenta solo mientras está encendido: PostgreSQL y MariaDB 0,5 GB cada uno, SQL Server 2 GB. No caben todos a la vez con el resto: enciende solo los motores que usen tus apps y, si hace falta SQL Server en los dos ambientes, apaga SonarQube mientras tanto (`./mercury down sonarqube`).
 
 Los comandos de `mercury` aceptan un stack, un grupo o `all`: `./mercury up jenkins`, `./mercury up monitoring`, `./mercury ps all`.
 
@@ -90,7 +98,7 @@ Está en `docs/`, en tres carpetas. El índice completo, con rutas de lectura se
 
 ## Convenciones
 
-- **Un stack, un compose.** Cada stack se levanta y se detiene por separado. Las redes compartidas (`net-tools`, `net-apps-dev`, `net-apps-prod`, `net-obs`) se crean una vez y se declaran `external`.
+- **Un stack, un compose.** Cada stack se levanta y se detiene por separado. Las redes compartidas (`net-tools`, `net-apps-dev`, `net-apps-prod`, `net-obs`, `net-db-dev`, `net-db-prod`) se crean una vez y se declaran `external`.
 - **Configuración en git, secretos y datos fuera.** Los `.env` no se versionan y los valores reales nunca van en un `.env.example`. Los datos viven en `/srv/mercury` (SSD) y `/mnt/hdd/mercury` (HDD).
 - **Versiones fijadas.** Las imágenes de terceros llevan versión exacta en el `.env` de su stack; actualizar es cambiar ese número.
 - **Toda app escucha en 8080** y su contenedor se llama `<app>-<ambiente>`. En Nginx Proxy Manager el destino siempre es `http://<app>-<dev|prod>:8080`.
