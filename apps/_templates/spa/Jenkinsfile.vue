@@ -9,6 +9,11 @@ pipeline {
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
+  parameters {
+    // Excepción puntual: despliega sin SonarQube, Semgrep ni trivy-fs y deja el build UNSTABLE
+    booleanParam(name: 'SKIP_ANALYSIS', defaultValue: false, description: 'Saltar SonarQube, Semgrep y Trivy del código')
+  }
+
   environment {
     APP = 'mi-vue'     // nombre de imagen y contenedor: minúsculas y guiones
     DIST_DIR = 'dist'  // carpeta con index.html tras el build (dist con Vite y con Vue CLI)
@@ -40,6 +45,7 @@ pipeline {
         }
 
         stage('SonarQube') {
+          when { expression { !params.SKIP_ANALYSIS } }
           steps {
             withSonarQubeEnv('sonarqube') {
               sh 'mercury-ci sonar "$APP" "-Dsonar.exclusions=node_modules/**,dist/**"'
@@ -49,6 +55,7 @@ pipeline {
 
         // La espera del quality gate no consume recursos: los escáneres corren mientras tanto
         stage('Análisis') {
+          when { expression { !params.SKIP_ANALYSIS } }
           failFast true
           parallel {
             stage('Quality gate') {
@@ -67,6 +74,13 @@ pipeline {
                 '''
               }
             }
+          }
+        }
+
+        stage('Análisis omitido') {
+          when { expression { params.SKIP_ANALYSIS } }
+          steps {
+            unstable 'SKIP_ANALYSIS: sin SonarQube, Semgrep ni trivy-fs'
           }
         }
 
@@ -98,7 +112,7 @@ pipeline {
     stage('Aprobar prod') {
       steps {
         timeout(time: 1, unit: 'DAYS') {
-          input message: "¿Promover ${APP}:${TAG} a prod?"
+          input message: "¿Promover ${APP}:${TAG} a prod?${params.SKIP_ANALYSIS ? ' (SIN análisis de código)' : ''}"
         }
       }
     }

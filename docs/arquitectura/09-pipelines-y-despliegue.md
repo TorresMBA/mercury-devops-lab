@@ -170,6 +170,26 @@ Detalles:
 
 El `timeout` va en el stage y no en el pipeline entero, para no cortar la espera de aprobación.
 
+### Saltar el análisis
+
+Cada plantilla declara el parámetro booleano `SKIP_ANALYSIS` (por defecto `false`), para excepciones puntuales lanzadas a mano con *Build with Parameters*.
+
+| Con `SKIP_ANALYSIS` | Cómo |
+|---|---|
+| No se ejecutan los stages *SonarQube* ni *Análisis* (*Quality gate*, Semgrep y `trivy-fs`) | `when { expression { !params.SKIP_ANALYSIS } }` |
+| En .NET se compila y se prueba sin `sonarscanner begin`/`end` | `[ "$SKIP_ANALYSIS" = true ] \|\| ...` en el `sh`, porque el análisis envuelve la compilación |
+| Sigue `trivy-image` de la imagen final | Es barato y por defecto no bloquea |
+| El build queda *UNSTABLE* | Stage *Análisis omitido* con `unstable` |
+| *Aprobar prod* lo avisa en su mensaje | `(SIN análisis de código)`; quien aprueba decide |
+
+Detalles:
+
+- **Un push nunca salta el análisis**: los builds por *Poll SCM* toman el valor por defecto.
+- **La primera ejecución tras copiar la plantilla analiza siempre**: Jenkins registra el parámetro al ejecutar el Jenkinsfile, y en esa primera ejecución `params.SKIP_ANALYSIS` vale `null`, que cuenta como falso.
+- **Quién lo marcó queda en el build** (*Started by user*), junto con los parámetros.
+- `semgrep.json` no existe en ese build; `archiveArtifacts` lleva `allowEmptyArchive: true` y no falla.
+- `manual-release` no tiene este parámetro: no ejecuta SonarQube ni Semgrep, solo `trivy-image`.
+
 ### Qué cambia entre lenguajes
 
 | Plantilla | Agente | Build y test | Análisis SonarQube | Qué se empaqueta | Runtime |

@@ -184,6 +184,7 @@ En el servidor ya funcionan `edge`, `registry` y `jenkins`. Lo siguiente está e
 - Los agentes versionados: las anclas `x-` y `<<:` en `casc/jenkins.yaml`, el `javaExe` del agente, `RUNTIME_VERSION` en `mercury-ci package`.
 - El plugin `lockable-resources` en `manual-release`.
 - `disableConcurrentBuilds(abortPrevious: true)` en las plantillas Jenkinsfile.
+- El parámetro `SKIP_ANALYSIS` de las plantillas Jenkinsfile (`when`, `unstable` y el `sonarscanner` condicional de .NET).
 - Las cachés de dependencias: la sintaxis `type=volume` en `mounts` del plugin Docker, el dueño de los volúmenes `mercury-cache-*` en su primer uso y `MAVEN_ARGS` con el bloqueo por archivo en builds simultáneos.
 - El stage `Análisis` con `parallel` y `failFast`, los `timeout` por stage y `archiveArtifacts` de `semgrep.json` en las plantillas Jenkinsfile.
 - `dotnet publish --no-build` y las cachés `RUN --mount=type=cache` de los Dockerfile de `flask` y `node`.

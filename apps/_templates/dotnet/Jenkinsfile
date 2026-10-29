@@ -9,6 +9,11 @@ pipeline {
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
 
+  parameters {
+    // Excepción puntual: despliega sin SonarQube, Semgrep ni trivy-fs y deja el build UNSTABLE
+    booleanParam(name: 'SKIP_ANALYSIS', defaultValue: false, description: 'Saltar SonarQube, Semgrep y Trivy del código')
+  }
+
   environment {
     APP = 'mi-api'                    // nombre de imagen y contenedor: minúsculas y guiones
     SOLUTION = 'MiApi.slnx'           // solución que se compila y se prueba (.slnx o .sln)
@@ -32,13 +37,14 @@ pipeline {
         stage('Build, test y SonarQube') {
           steps {
             withSonarQubeEnv('sonarqube') {
-              // El escáner de .NET envuelve la compilación: begin -> build/test -> end
+              // El escáner de .NET envuelve la compilación: begin -> build/test -> end.
+              // Con SKIP_ANALYSIS (llega al sh como variable de entorno) solo se compila y se prueba
               sh '''
-                dotnet sonarscanner begin /k:"$APP" /d:sonar.host.url="$SONAR_HOST_URL" /d:sonar.token="$SONAR_AUTH_TOKEN"
+                [ "$SKIP_ANALYSIS" = true ] || dotnet sonarscanner begin /k:"$APP" /d:sonar.host.url="$SONAR_HOST_URL" /d:sonar.token="$SONAR_AUTH_TOKEN"
                 dotnet restore "$SOLUTION"
                 dotnet build "$SOLUTION" -c Release --no-restore
                 dotnet test "$SOLUTION" -c Release --no-build
-                dotnet sonarscanner end /d:sonar.token="$SONAR_AUTH_TOKEN"
+                [ "$SKIP_ANALYSIS" = true ] || dotnet sonarscanner end /d:sonar.token="$SONAR_AUTH_TOKEN"
               '''
             }
           }
@@ -46,6 +52,7 @@ pipeline {
 
         // La espera del quality gate no consume recursos: los escáneres corren mientras tanto
         stage('Análisis') {
+          when { expression { !params.SKIP_ANALYSIS } }
           failFast true
           parallel {
             stage('Quality gate') {
@@ -64,6 +71,13 @@ pipeline {
                 '''
               }
             }
+          }
+        }
+
+        stage('Análisis omitido') {
+          when { expression { params.SKIP_ANALYSIS } }
+          steps {
+            unstable 'SKIP_ANALYSIS: sin SonarQube, Semgrep ni trivy-fs'
           }
         }
 
@@ -97,7 +111,7 @@ pipeline {
     stage('Aprobar prod') {
       steps {
         timeout(time: 1, unit: 'DAYS') {
-          input message: "¿Promover ${APP}:${TAG} a prod?"
+          input message: "¿Promover ${APP}:${TAG} a prod?${params.SKIP_ANALYSIS ? ' (SIN análisis de código)' : ''}"
         }
       }
     }

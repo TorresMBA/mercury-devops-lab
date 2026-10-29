@@ -94,6 +94,8 @@ Las dependencias (NuGet, Maven, npm, pip) se guardan en una caché compartida en
 
 Por defecto los escáneres de seguridad informan pero no rompen el build. Para que los hallazgos de severidad alta o crítica lo detengan, añade al `environment` del Jenkinsfile: `MERCURY_SCAN_STRICT = '1'`.
 
+**Desplegar sin análisis.** Para una excepción puntual (un arreglo urgente con el *quality gate* en rojo, por ejemplo), lanza el job con *Build with Parameters* y marca `SKIP_ANALYSIS`. Se saltan SonarQube, el *quality gate*, Semgrep y `trivy-fs`; el escaneo de la imagen final sigue. El build termina en amarillo (*UNSTABLE*) y *Aprobar prod* avisa de que no hubo análisis. Los builds por push nunca lo marcan. El parámetro aparece a partir del segundo build tras copiar la plantilla: Jenkins lo registra en la primera ejecución, que analiza como siempre. Detalle en [09-pipelines-y-despliegue.md](../arquitectura/09-pipelines-y-despliegue.md#saltar-el-análisis).
+
 #### Leer los resultados de seguridad
 
 Las tres herramientas no son redundantes: cada una mira una cosa distinta.
