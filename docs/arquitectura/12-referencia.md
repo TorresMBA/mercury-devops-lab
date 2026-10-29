@@ -227,7 +227,7 @@ Comportamientos que conviene conocer:
 
 | Ruta | Script | Contenido |
 |---|---|---|
-| `/etc/sysctl.d/99-mercury.conf` | `01-base.sh` | `vm.max_map_count=524288`, `fs.file-max=131072`, `vm.swappiness=10` |
+| `/etc/sysctl.d/99-mercury.conf` | `01-base.sh` | `vm.max_map_count=524288`, `fs.file-max=131072`, `vm.swappiness=10`, `net.ipv4.ip_nonlocal_bind=1` |
 | `/etc/apt/apt.conf.d/20auto-upgrades` | `01-base.sh` | Actualizaciones de seguridad automáticas |
 | `/swapfile-mercury` y línea en `/etc/fstab` | `01-base.sh` | Swap adicional |
 | `/etc/ssh/sshd_config.d/10-mercury.conf` | `01-base.sh` | Sin root, sin contraseña, bloque SFTP |

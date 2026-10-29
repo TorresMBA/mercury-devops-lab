@@ -190,6 +190,7 @@ En el servidor ya funcionan `edge`, `registry` y `jenkins`. Lo siguiente está e
 - `dotnet publish --no-build` y las cachés `RUN --mount=type=cache` de los Dockerfile de `flask` y `node`.
 - El marcador de Trivy (`--skip-db-update` en `trivy-image`).
 - `trivy-fs` con la caché de Maven montada en solo lectura y `--offline-scan`.
+- `net.ipv4.ip_nonlocal_bind=1` en `99-mercury-sysctl.conf` con un arranque en el que la IP llegue tarde, y `advtcp` en `--disable_metrics` de cAdvisor.
 - `./mercury prune` contra un Docker real, `host/07-cleanup.sh`, el bloque `builder.gc` de `daemon.json` y la validación con `dockerd --validate` en `install_daemon_json`.
 - Los servidores de base de datos de `stacks/data`: los perfiles con `COMPOSE_PROFILES` desde el `.env` del stack, `db down all` con `--profile '*'`, la publicación de puertos con una red interna más la red `publish`, `no-new-privileges` en MariaDB y SQL Server, el dueño `10001:0` del directorio de SQL Server, los healthcheck (`healthcheck.sh` de MariaDB, `sqlcmd -C` de SQL Server), el SQL de `db create`/`db drop` con `sqlcmd` leyendo de stdin, las etiquetas de imagen fijadas (`MARIADB_VERSION`, `MSSQL_VERSION`), las cadenas de conexión entre comillas simples en el `env_file`, el `env_file` de los `compose.quick.yaml` y los volcados de prod en `host/backup.sh`.
 
@@ -212,6 +213,7 @@ Por dónde empezar según el síntoma. Cada documento enlazado tiene el detalle.
 | `trivy-fs` falla con `remote Maven repository returned 429 Too Many Requests` | El agente es anterior al cambio que da a Trivy la caché de Maven: `./mercury agents`. Maven Central bloquea la IP unos 30 minutos (`Retry-After`); hasta entonces también puede fallar `mvn` si necesita descargar algo | [09](09-pipelines-y-despliegue.md#por-qué-los-escáneres-son-contenedores-hermanos) |
 | *Quality gate* agota los 10 minutos | Falta el webhook de SonarQube hacia Jenkins | [09](09-pipelines-y-despliegue.md#comunicación-con-sonarqube) |
 | SonarQube no arranca | `sysctl vm.max_map_count` debe dar 524288 | [01](../instalacion/01-host.md) |
+| Tras un arranque, `adguard`, `npm`, `samba` o `pg-dev` en *Exited (128)* con `cannot assign requested address`, o en marcha pero con `docker port <contenedor>` vacío | Docker arrancó antes de que el host tuviera `LAN_IP` (cable, DHCP). `sysctl net.ipv4.ip_nonlocal_bind` debe dar 1; si no, `sudo bash host/01-base.sh`. Para recuperarlos, recrearlos: `./mercury down <stack> && ./mercury up <stack>` (`db down`/`db up` en `pg-dev`); `restart` no basta | [12](12-referencia.md#archivos-que-escriben-en-el-sistema) |
 | *Deploy* falla a los 120 segundos | `docker logs <app>-<env>`; revisar `APPS_DIR/<env>/<app>.env` | [09](09-pipelines-y-despliegue.md#despliegue) |
 | Un cambio en `mercury-ci` no tiene efecto | Falta `./mercury agents` (con solo `agents <agente>` la base no se reconstruye) | [scripts/01](../scripts/01-como-se-aplican-los-cambios.md) |
 | Un servicio no puede escribir en su directorio | Dueño incorrecto del bind-mount | [06](06-arquitectura.md#datos-fuera-del-repo) |

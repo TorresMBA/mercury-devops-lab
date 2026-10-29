@@ -83,6 +83,7 @@ Qué hace cada cosa y por qué:
 ```bash
 sudo ufw status verbose
 sysctl vm.max_map_count                    # 524288
+sysctl net.ipv4.ip_nonlocal_bind           # 1
 free -h                                    # swap total ~8 GB
 df -h /srv /mnt/hdd                        # el HDD montado en /mnt/hdd
 docker info | grep -A3 "Default Address"   # 10.200.0.0/16

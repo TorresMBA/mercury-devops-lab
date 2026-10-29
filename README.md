@@ -22,7 +22,7 @@ Infraestructura como código de un servidor doméstico de CI/CD sobre Docker: Je
   apps prod ── net-db-prod ── pg / mariadb / mssql prod  (sin puertos publicados)
 ```
 
-- Las herramientas solo se ven en la LAN, con HTTPS real (`*.int.<dominio>`). AdGuard Home resuelve esos nombres; no existen en el DNS público.
+- Las herramientas solo se ven en la LAN, con HTTPS real (`*.int.<dominio>`). Un registro público de Cloudflare (`A *.int` → IP LAN) los resuelve en cualquier equipo sin configurar su DNS; el servidor y los contenedores usan AdGuard Home.
 - Lo público sale únicamente por el túnel de Cloudflare, que apunta directo a la app y solo alcanza la red de apps de producción.
 - Solo Nginx Proxy Manager, AdGuard (DNS), Samba y las bases de datos de dev publican puertos, ligados a la LAN. El resto se alcanza por nombre de contenedor dentro de las redes de Docker.
 - Las apps no traen su propia base de datos: hay un servidor por motor (PostgreSQL, MariaDB, SQL Server) y ambiente, con una base por app, y se encienden a demanda (`./mercury db up dev postgres`).

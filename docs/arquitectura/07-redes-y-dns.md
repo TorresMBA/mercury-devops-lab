@@ -132,7 +132,7 @@ Puertos internos de cada servicio, que solo importan para los Proxy Hosts y para
 
 ## DNS interno
 
-AdGuard Home reescribe cualquier nombre `*.int.<dominio>` hacia `LAN_IP` y reenvía el resto a internet por DNS sobre HTTPS (Cloudflare y Quad9). Esos nombres no existen en el DNS público.
+AdGuard Home reescribe cualquier nombre `*.int.<dominio>` hacia `LAN_IP` y reenvía el resto a internet por DNS sobre HTTPS (Cloudflare y Quad9). Además, Cloudflare publica el registro `A *.int` → `LAN_IP` (*DNS only*), de modo que los equipos de la LAN resuelven esos nombres con su DNS de siempre, sin configurar nada. Es una decisión del usuario: se acepta publicar la IP privada a cambio de no gestionar el DNS de cada equipo ni depender del servidor para navegar. El registro y el plan para prescindir de él están en [02-puesta-en-marcha.md](../instalacion/02-puesta-en-marcha.md#resolver-los-nombres-desde-la-lan).
 
 Hay tres tipos de consumidor y cada uno se configura en un sitio distinto:
 
@@ -148,11 +148,15 @@ flowchart TB
   dockerdns["DNS de Docker<br/>clave dns de daemon.json"]
   adguard["AdGuard Home<br/>LAN_IP:53"]
   landns["DNS de la red<br/>router o ISP"]
+  cfdns["Cloudflare<br/>registro público A *.int"]
   fallback["1.1.1.1<br/>respaldo"]
   doh["Cloudflare y Quad9<br/>DNS sobre HTTPS"]
   answer["Respuesta: LAN_IP"]
 
-  lanpc -->|"configuración manual<br/>adaptador o DHCP"| adguard
+  lanpc -->|"sin configurar nada"| landns
+  lanpc -.->|"opcional: DNS manual<br/>adaptador o DHCP"| adguard
+  landns -->|"*.int.dominio"| cfdns
+  cfdns --> answer
   host --> resolved
   resolved -->|"nombres internos"| adguard
   resolved -->|"todo lo demás"| landns
@@ -167,7 +171,7 @@ flowchart TB
 |---|---|---|---|
 | Host | `/etc/systemd/resolved.conf.d/mercury.conf` (`DNS=LAN_IP`, `Domains=~INT_DOMAIN`) | `host/06-dns.sh` | Conserva internet; fallan solo los nombres internos |
 | Contenedores | Clave `dns` de `/etc/docker/daemon.json` (`[LAN_IP, "1.1.1.1"]`) | `install_daemon_json` en `host/_common.sh` | Conservan internet por `1.1.1.1`; fallan los nombres internos |
-| Equipos de la LAN | Adaptador de red o DHCP del router | El usuario, a mano | Se quedan sin DNS si no hay alternativa |
+| Equipos de la LAN | Nada: DNS del router o del proveedor, que encuentra el registro público de Cloudflare. Opcional: AdGuard en el adaptador o en el DHCP del router | El registro, el usuario en Cloudflare; el DNS opcional, a mano | No les afecta, salvo a los que usen AdGuard |
 
 Detalles que evitan errores:
 
@@ -202,12 +206,12 @@ Sin argumento comprueba el nombre del registry. Admite un nombre corto: `./mercu
 sequenceDiagram
   autonumber
   participant PC as PC de la LAN
-  participant AG as AdGuard
+  participant DNS as DNS de la red<br/>(registro de Cloudflare)
   participant NPM as Nginx Proxy Manager
   participant J as Contenedor jenkins
 
-  PC->>AG: ¿jenkins.int.dominio?
-  AG-->>PC: LAN_IP
+  PC->>DNS: ¿jenkins.int.dominio?
+  DNS-->>PC: LAN_IP
   PC->>NPM: HTTPS a LAN_IP:443
   Note over NPM: Termina TLS con el<br/>certificado wildcard
   NPM->>J: HTTP a jenkins:8080 por net-tools
@@ -245,7 +249,7 @@ Los *Public Hostname* del túnel se configuran en el panel de Cloudflare Zero Tr
 Un único certificado wildcard `*.int.<dominio>` de Let's Encrypt, que NPM obtiene y renueva con el desafío DNS-01 usando un token de la API de Cloudflare. Consecuencias:
 
 - No hace falta abrir ningún puerto para validarlo.
-- Cloudflare interviene aunque los nombres internos no estén publicados: solo se crea un registro TXT temporal.
+- No depende del registro público `A *.int`: el desafío solo crea un registro TXT temporal, así que el certificado sigue funcionando si se aplica el plan sin registro público.
 - **Cubre un solo nivel.** `mi-api-dev.int.<dominio>` es válido; `mi-api.dev.int.<dominio>` no. Por eso el ambiente va en el nombre con guion.
 
 ### Proxy Hosts

@@ -48,7 +48,8 @@ services:
     command:
       - --docker_only=true
       - --housekeeping_interval=30s
-      - --disable_metrics=percpu,sched,tcp,udp,hugetlb,referenced_memory,cpu_topology,resctrl
+      # advtcp: unas 4 000 series que ningún dashboard usa y que llevaban a Prometheus al límite de memoria
+      - --disable_metrics=percpu,sched,tcp,advtcp,udp,hugetlb,referenced_memory,cpu_topology,resctrl
     privileged: true
     devices:
       - /dev/kmsg

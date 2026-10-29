@@ -33,7 +33,8 @@ Todo lo demás depende de esta fase: sin DNS interno y certificado, ni `docker l
                       tudominio.com
               ┌────────────┴────────────┐
            Público                   Interno
-        Cloudflare DNS            AdGuard Home (IP LAN, puerto 53)
+        Cloudflare DNS            Cloudflare DNS (A *.int, equipos de la LAN)
+              │                   AdGuard Home (servidor y contenedores)
               │                         │
       app.tudominio.com        *.int.tudominio.com → IP LAN
               │                         │
@@ -44,7 +45,7 @@ Todo lo demás depende de esta fase: sin DNS interno y certificado, ni `docker l
 
 ### Paso 1. DNS interno con AdGuard Home
 
-AdGuard resuelve cualquier nombre `algo.int.tudominio.com` hacia la IP LAN del servidor y reenvía el resto a internet. Los nombres internos no existen fuera de tu red.
+AdGuard resuelve cualquier nombre `algo.int.tudominio.com` hacia la IP LAN del servidor y reenvía el resto a internet. Lo usan el servidor y sus contenedores; los equipos de la LAN resuelven esos nombres con un registro público de Cloudflare (ver [Resolver los nombres desde la LAN](#resolver-los-nombres-desde-la-lan)).
 
 ```bash
 cp stacks/core/dns/.env.example stacks/core/dns/.env
@@ -110,23 +111,42 @@ El certificado `*.int.<dominio>` cubre un solo nivel: por eso dev usa `<app>-dev
 
 Si NPM muestra el destino como *Offline* es porque ese contenedor aún no existe; pasará a *Online* cuando levantes su stack.
 
-### Usar AdGuard en la red
+### Resolver los nombres desde la LAN
 
-El servidor ya lo usa. Para que tu PC y el resto de equipos resuelvan `*.int.tudominio.com` tienen que consultar a AdGuard:
+El servidor y sus contenedores ya consultan a AdGuard. Los equipos de la LAN no necesitan configurar nada: resuelven `*.int.tudominio.com` con su DNS de siempre (router o proveedor) gracias a un registro público en Cloudflare.
 
-1. **Primero solo tu PC.** En Windows: Configuración > Red e Internet > tu adaptador > *Asignación de servidor DNS* > Manual > IPv4, DNS preferido = IP LAN del servidor. Abre `https://adguard.int.tudominio.com` para comprobarlo.
+En Cloudflare > DNS > Records:
+
+| Tipo | Nombre | Contenido | Proxy |
+|---|---|---|---|
+| `A` | `*.int` | IP LAN del servidor | *DNS only* (nube gris) |
+
+Con la nube naranja Cloudflare intentaría hacer de proxy hacia una IP privada y no funcionaría. Lo que implica este registro:
+
+- **Cualquier equipo de la LAN funciona sin tocar su DNS**, y el servidor apagado no deja la red sin navegación.
+- **La IP privada del servidor queda publicada.** No da acceso desde internet (no es enrutable), pero revela el direccionamiento de la red.
+- **Fuera de casa los nombres resuelven a una IP que no responde.** Es el comportamiento esperado: las herramientas solo se ven en la LAN.
+- **Si cambia `LAN_IP`** hay que cambiar este registro además del `.env` raíz y la reescritura de AdGuard.
+- Algunos routers con protección contra *DNS rebinding* descartan respuestas públicas que apuntan a IP privadas. Si un equipo no resuelve los nombres y `nslookup jenkins.int.tudominio.com 1.1.1.1` sí da la IP, es eso: desactiva esa protección para el dominio o pasa ese equipo a AdGuard (paso 1 de abajo).
+
+El certificado no depende de este registro: el desafío DNS-01 solo crea un registro TXT temporal.
+
+#### Plan sin el registro público
+
+Si prefieres no publicar la IP privada, los equipos de la LAN tienen que consultar a AdGuard:
+
+1. **Primero solo tu PC.** En Windows: Configuración > Red e Internet > tu adaptador > *Asignación de servidor DNS* > Manual > IPv4, DNS preferido = IP LAN del servidor. Vacía la caché con `ipconfig /flushdns` y comprueba con `nslookup jenkins.int.tudominio.com`: el servidor que responde debe ser la IP LAN del servidor.
 2. **Después toda la red.** En el router, en la configuración de DHCP, pon la IP LAN del servidor como servidor DNS. Los equipos lo toman al renovar la conexión.
+3. **Borra el registro `*.int`** en Cloudflare > DNS > Records cuando `./mercury check-dns` dé los cuatro puntos en `ok` y los equipos resuelvan a través de AdGuard. Comprueba que ya no existe con `nslookup prueba.int.tudominio.com 1.1.1.1`, que debe responder que no hay registro.
 
 Antes del paso 2 ten en cuenta:
 
 - Si el servidor se apaga, toda la red se queda sin DNS (sin navegación) hasta que vuelva o cambies el DNS del router.
 - Poner un DNS secundario público en el router evita ese corte, pero los equipos lo usarán a ratos y entonces los nombres internos fallarán de forma intermitente y la publicidad dejará de bloquearse. Es preferible un solo DNS y tener a mano cómo revertirlo.
 
-AdGuard arranca sin listas de bloqueo. Para filtrar publicidad en la red: panel > *Filtros > Listas de bloqueo DNS > Añadir lista de bloqueo* y elige de la lista predefinida.
+Para volver atrás, crea de nuevo el registro de la tabla anterior y devuelve el DNS del router y de los adaptadores a automático.
 
-### Si usabas el registro `*.int` de Cloudflare
-
-Ya no hace falta. Cuando `./mercury check-dns` dé los tres primeros puntos en `ok` y tu PC resuelva los nombres a través de AdGuard, bórralo en Cloudflare > DNS > Records. Así la IP privada del servidor deja de estar publicada.
+AdGuard arranca sin listas de bloqueo. Para filtrar publicidad en los equipos que lo usen: panel > *Filtros > Listas de bloqueo DNS > Añadir lista de bloqueo* y elige de la lista predefinida.
 
 ### Si el nombre no resuelve
 

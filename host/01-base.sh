@@ -14,7 +14,7 @@ APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 EOF
 
-log "Parámetros de kernel (requisitos de SonarQube y uso moderado de swap)"
+log "Parámetros de kernel (requisitos de SonarQube, uso moderado de swap y puertos en LAN_IP)"
 install -m 0644 "$HOST_DIR/files/99-mercury-sysctl.conf" /etc/sysctl.d/99-mercury.conf
 sysctl --system >/dev/null
 
