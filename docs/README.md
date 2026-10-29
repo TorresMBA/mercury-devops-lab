@@ -10,6 +10,8 @@ La documentación está en tres carpetas, según lo que se quiera hacer:
 
 **¿Buscas un comando?** [comandos.md](comandos.md) lista todos los de `mercury`, `mercury-ci` y `host/`, y los servicios programados de backup y limpieza, con una línea por cada uno.
 
+**¿Quieres ver cómo está el servidor, Jenkins o una app?** [monitorizacion.md](monitorizacion.md) explica Prometheus, Loki y Grafana desde cero: qué mide cada pieza, cómo leer los dashboards, cómo buscar logs y cómo añadir un dashboard o una alerta.
+
 ## `instalacion/`: levantar y operar
 
 | Documento | Contenido |
@@ -54,6 +56,7 @@ La documentación está en tres carpetas, según lo que se quiera hacer:
 | Añadir una versión de lenguaje o un runtime nuevo | arquitectura 08 → 09 → 13, y scripts 03 |
 | Añadir un servicio (stack) nuevo | arquitectura 06 → 07 → 13 |
 | Diagnosticar un fallo | arquitectura 13 (tabla de síntomas) → el documento del área |
+| Vigilar el servidor y las apps | monitorizacion → arquitectura 11 |
 
 ## Convenciones de esta documentación
 

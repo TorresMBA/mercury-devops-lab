@@ -4,7 +4,7 @@
 
 | Tarea | Cómo |
 |---|---|
-| Ver el estado general | Grafana > *Mercury - Resumen*, o `docker stats --no-stream` |
+| Ver el estado general | Grafana > carpeta *Mercury*: *Resumen*, *Host*, *CI/CD* y *Apps* ([guía](../monitorizacion.md)), o `docker stats --no-stream` |
 | Ver qué hay y qué está configurado | `./mercury list` |
 | Liberar RAM | `./mercury down sonarqube` cuando no vayas a analizar código (3,5 GB); `./mercury down monitoring` libera otros 1,9 GB |
 | Actualizar una imagen | Cambia la versión en `stacks/<grupo>/<stack>/.env`, luego `./mercury pull <stack> && ./mercury up <stack>` |

@@ -287,7 +287,7 @@ bash stacks/monitoring/grafana/fetch-dashboards.sh       # dashboards de la comu
 
 **Verificación.**
 
-- En Grafana (`https://grafana.int.<dominio>`), carpeta *Mercury*: el dashboard *Mercury - Resumen* muestra CPU, RAM, discos y consumo por contenedor.
+- En Grafana (`https://grafana.int.<dominio>`), ☰ > Dashboards > carpeta *Mercury* (la página de inicio no la muestra): *Mercury - Host*, *Mercury - CI/CD* y *Mercury - Apps* tienen datos. Cómo leerlos: [monitorizacion.md](../monitorizacion.md).
 - *Explore > Loki*: la consulta `{stack="jenkins"}` devuelve los logs de Jenkins.
 - Prometheus no se publica. Para ver sus *targets*: `docker exec prometheus wget -qO- localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health}'`. Todos deben estar `up`.
 

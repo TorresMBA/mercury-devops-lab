@@ -98,9 +98,15 @@ Todo se carga desde archivos del repo, montados en solo lectura:
 | `provisioning/datasources/datasources.yaml` | Fuentes `Prometheus` (uid `prometheus`, por defecto) y `Loki` (uid `loki`) |
 | `provisioning/dashboards/dashboards.yaml` | Proveedor que carga `dashboards/` en la carpeta *Mercury*, cada 60 segundos |
 | `dashboards/mercury-overview.json` | *Mercury - Resumen*: CPU, RAM, swap, discos, consumo por contenedor, errores recientes |
+| `dashboards/mercury-host.json` | *Mercury - Host*: el host Linux (node-exporter), con temperatura y disco |
+| `dashboards/mercury-cicd.json` | *Mercury - CI/CD*: Jenkins (último build por job, cola), agentes y escáneres efímeros, servicios de la plataforma |
+| `dashboards/mercury-apps.json` | *Mercury - Apps*: apps desplegadas, con selector de app y búsqueda en sus logs |
 | `dashboards/community-*.json` | Dashboards de la comunidad. No se versionan |
 
 - **Los uid fijos** permiten que los dashboards del repo referencien las fuentes de datos sin depender de un identificador generado.
+- **Cómo distinguen los dashboards un contenedor de otro**: por la etiqueta `image` de cAdvisor. `.../apps/` son apps, `.../agents/` agentes y `trivy`, `semgrep` o `sonar-scanner` escáneres. Los servicios de la plataforma se listan por nombre en `mercury-cicd.json`: un servicio nuevo de CI/CD hay que añadirlo ahí.
+- **Jenkins**: el resultado del último build sale de `default_jenkins_builds_last_build_result_ordinal` (0 OK, 1 inestable, 2 fallido, 3 sin ejecutar, 4 abortado). Los contadores `*_build_count_total` del plugin solo aparecen tras un build posterior al arranque de Jenkins, así que los builds por hora se calculan con `changes()` sobre la hora de inicio del último build.
+- La guía de uso (cómo leer cada panel, consultas frecuentes, cómo crear un dashboard) está en [monitorizacion.md](../monitorizacion.md).
 - **`fetch-dashboards.sh`** descarga de grafana.com los dashboards de node-exporter (1860), cAdvisor (14282) y Jenkins (9964) y sustituye sus variables de fuente de datos por `prometheus`. Hay que ejecutarlo una vez, y de nuevo para actualizarlos.
 - **`allowUiUpdates: false`**: un dashboard del repo no se puede guardar desde la interfaz. Para cambiarlo, se exporta el JSON y se sustituye el archivo.
 - Usuarios, *contact points* y dashboards creados a mano viven en `DATA_DIR/grafana`, que entra en el backup.
