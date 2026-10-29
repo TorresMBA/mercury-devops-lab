@@ -1,4 +1,4 @@
-# Calidad de código. Es el stack más pesado (~3.4 GB): se puede detener cuando no se use.
+# Calidad de código. Es el stack más pesado (~3,5 GB): se puede detener cuando no se use.
 # Requiere vm.max_map_count=524288 en el host (host/01-base.sh).
 name: sonarqube
 

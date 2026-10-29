@@ -24,7 +24,7 @@ Tres hechos explican todo el comportamiento:
 
 1. **La copia se hace al construir la imagen base.** `stacks/devops/jenkins/agents/base/Dockerfile` contiene `COPY pipelines/lib/mercury-ci /usr/local/bin/mercury-ci` y `COPY apps/_templates /opt/mercury/templates`.
 2. **Los agentes de lenguaje heredan de la base** (`FROM ${BASE}`). Llevan la copia que tenía la base en el momento en que se construyeron ellos.
-3. **El agente no ve el repo.** Solo tiene montados `INBOX_DIR` y `APPS_DIR`. Cuando un Jenkinsfile ejecuta `mercury-ci`, resuelve a `/usr/local/bin/mercury-ci` dentro del contenedor.
+3. **El agente no ve el repo.** Solo tiene montados `INBOX_DIR`, `APPS_DIR` y los volúmenes de caché de dependencias (`mercury-cache-*`). Cuando un Jenkinsfile ejecuta `mercury-ci`, resuelve a `/usr/local/bin/mercury-ci` dentro del contenedor.
 
 Tras reconstruir no hace falta reiniciar Jenkins: las plantillas de agente usan `pullStrategy: PULL_ALWAYS`, así que el siguiente build descarga la imagen nueva.
 
@@ -58,8 +58,10 @@ Los demás agentes publicados seguirán con la copia antigua hasta que se recons
 | `apps/_templates/<runtime>/compose.quick.yaml` | Host (`./mercury quick`) | Se lee directamente del repo | `git pull`. Inmediato |
 | `apps/_templates/<runtime>/Jenkinsfile*` | Jenkins, desde el repo de cada app | **Copiado a mano** al repo de la app | Copiarlo de nuevo a cada repo |
 | `pipelines/manual-release/Jenkinsfile` | Controller de Jenkins | Carpeta `pipelines/` montada; job-dsl lo lee al cargar la configuración | `./mercury restart jenkins` |
+| `stacks/devops/jenkins/agents/base/Dockerfile`, `AGENT_VERSION` (`stacks/devops/jenkins/.env`) | Al construir la imagen base | — | `./mercury agents` (reconstruye la base y los agentes publicados) |
 | `stacks/devops/jenkins/agents/<agente>/Dockerfile` | Al construir ese agente | — | `./mercury agents <agente>:<versión>` |
 | `stacks/devops/jenkins/casc/*.yaml` | Controller de Jenkins | Carpeta montada | `./mercury restart jenkins` |
+| `mounts` del ancla `x-agent-base` en `casc/jenkins.yaml` | Al crear cada agente | Carpeta montada | `./mercury agents` (el destino debe existir en la base con dueño `jenkins`) y `./mercury restart jenkins` |
 
 Consecuencia que conviene tener presente: `compose.deploy.yaml` existe en dos sitios a la vez. Tras editarlo, `./mercury deploy` (host) usa ya la versión nueva, mientras que los pipelines siguen con la antigua hasta `./mercury agents`. Durante ese intervalo un mismo despliegue da resultados distintos según por dónde se lance.
 

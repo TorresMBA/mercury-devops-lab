@@ -60,7 +60,7 @@ Lee el `.env` de Jenkins (`AGENT_VERSION`). Detalle en [08-jenkins-y-agentes.md]
 | Comando | Qué hace |
 |---|---|
 | `db ps` | Contenedores de los dos stacks y motores de `COMPOSE_PROFILES` (los que arrancan con `up all`) |
-| `db up <env> <motor>` | `compose --profile <motor> up -d --wait <motor>`. `restart: unless-stopped` lo mantiene encendido tras reiniciar |
+| `db up <env> <motor>` | `compose --profile <motor> up -d --wait --wait-timeout 180 <motor>`. `restart: unless-stopped` lo mantiene encendido tras reiniciar |
 | `db down <env> <motor>` | `compose --profile <motor> rm -s -f <motor>`. Los datos se conservan |
 | `db down <env> all` | `compose --profile '*' down`: todos los motores del ambiente |
 | `db create <env> <motor> <app>` | Base y usuario `<app>` (con `_` en lugar de `-`), clave aleatoria. Añade `DB_*`, `ConnectionStrings__Default`, `SPRING_DATASOURCE_*` y `DATABASE_URL` a `APPS_DIR/<env>/<app>.env` (con `sudo`). Se niega si ya hay una conexión |
@@ -109,14 +109,14 @@ Lo leen `mercury`, todos los compose y los scripts de `host/`.
 | `BASE_DOMAIN` | `ejemplo.com` | Dominio gestionado en Cloudflare. Informativa: ningún script ni compose la lee |
 | `INT_DOMAIN` | `int.ejemplo.com` | Sufijo de los nombres internos: reescritura de AdGuard, dominio de enrutamiento del host, URLs de Jenkins, SonarQube y Grafana |
 | `REGISTRY_HOST` | `registry.int.ejemplo.com` | Prefijo de todas las imágenes propias |
-| `LAN_IP` | `192.168.1.50` | IP a la que se ligan los puertos 53, 81 y 445; respuesta de la reescritura DNS |
-| `LAN_SUBNET` | `192.168.1.0/24` | Origen permitido en las reglas UFW de 53, 81 y 445 |
+| `LAN_IP` | `192.168.1.50` | IP a la que se ligan los puertos 53, 81, 445 y los de las bases de datos de dev (5432, 3306, 1433); respuesta de la reescritura DNS |
+| `LAN_SUBNET` | `192.168.1.0/24` | Origen permitido en las reglas UFW de 53, 81, 445, 1433, 3306 y 5432 |
 | `HDD_UUID` | UUID de `blkid` | Partición ext4 del HDD. Vacío: no se monta y `HDD_DIR` queda en el disco del sistema |
 | `DATA_DIR` | `/srv/mercury/data` | Datos de servicios (SSD) |
 | `APPS_DIR` | `/srv/mercury/apps` | Archivos `<env>/<app>.env` |
 | `INBOX_DIR` | `/srv/mercury/sftp/inbox` | Canal manual. Su directorio padre es el chroot de SFTP |
 | `HDD_DIR` | `/mnt/hdd/mercury` | Registry, métricas, logs, backups. Su directorio padre es el punto de montaje del HDD |
-| `TZ` | `UTC` | Zona horaria de NPM, Jenkins y Grafana |
+| `TZ` | `UTC` | Zona horaria de NPM, Jenkins, Grafana y los servidores de base de datos de `db-dev` y `db-prod` |
 
 `mercury-ci` asume que `APPS_DIR` es `/srv/mercury/apps` y las plantillas de agente lo montan en esa ruta fija. Si se cambia `APPS_DIR` en el host, hay que revisar ambos.
 
@@ -182,6 +182,8 @@ Se definen en el bloque `environment` del Jenkinsfile de la app, salvo que se in
 | `SITE_DIR` | `.` | Solo estático: carpeta con `index.html` |
 
 Variables que pone la plataforma en todo agente (ancla `x-agent-base`): `DOCKER_HOST=tcp://socket-proxy:2375` y `REGISTRY_HOST`.
+
+Variables internas de `mercury-ci`, con valores por defecto que corresponden a la imagen base y a `casc/jenkins.yaml`; solo hace falta definirlas para probar el script fuera de un agente: `MERCURY_TEMPLATES` (`/opt/mercury/templates`, plantillas de runtime), `AGENT_NETWORK` (`mercury-jenkins`, red por la que Trivy alcanza `socket-proxy` para leer la imagen que escanea), `APPS_DIR` (`/srv/mercury/apps`) y `MERCURY_TRIVY_DB_MARK` (`/tmp/mercury-trivy-db-al-dia`, marcador que deja `trivy-fs` para que `trivy-image` no vuelva a actualizar su base de datos).
 
 Variables que lee la app en ejecución, y que se definen en `APPS_DIR/<env>/<app>.env`:
 

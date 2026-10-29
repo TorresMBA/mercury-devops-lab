@@ -136,6 +136,8 @@ flowchart TB
   s7 -.->|"push nuevo o 24 h"| x2["Build cancelado"]
 ```
 
+El diagrama muestra la forma general. Los nombres de las primeras etapas cambian según la plantilla: .NET hace build, test y SonarQube en una sola etapa (*Build, test y SonarQube*), Flask la llama *Test*, Angular *Build*, y `static` no compila: empieza en *SonarQube*.
+
 Las plantillas declaran `agent none` en el pipeline y asignan agente por etapa. Así la espera de aprobación no ocupa memoria ni un cupo de agente. *Deploy prod* usa el agente `base`, el más ligero, y `skipDefaultCheckout()`: no necesita el código, solo desplegar una imagen que ya existe.
 
 **Prod recibe la misma imagen que se probó en dev.** No se reconstruye: `mercury-ci deploy "$APP" prod "$TAG"` usa el mismo `TAG`.
@@ -312,7 +314,7 @@ Cada imagen de agente exporta `RUNTIME_VERSION`. `mercury-ci package` la traduce
 | `dotnet` | Salida de `dotnet publish` | `dotnet <dll>`; el ensamblado se deduce del único `*.runtimeconfig.json`, o se fija con `APP_DLL` | `$APP_UID` | Ninguno: `ASPNETCORE_HTTP_PORTS=8080` |
 | `spring` | Carpeta con un único `.jar` | `java $JAVA_OPTS -jar app.jar`, con `MaxRAMPercentage=75` | 10001 | Ninguno: `SERVER_PORT=8080` |
 | `flask` | Código con `requirements.txt` | `gunicorn --bind 0.0.0.0:8080 --workers 2 $APP_MODULE` | 10001 | Objeto Flask en `app:app`, o definir `APP_MODULE` |
-| `node` | Código con `package.json` | `npm start`, tras `npm ci --omit=dev` | `node` | Escuchar en `process.env.PORT`; script `start` |
+| `node` | Código con `package.json` | `npm start`, tras `npm ci --omit=dev` (`npm install --omit=dev` si no hay `package-lock.json`) | `node` | Escuchar en `process.env.PORT`; script `start` |
 | `static` | Carpeta con `index.html` | nginx | sin privilegios | — |
 | `spa` | Carpeta compilada con `index.html` | nginx con `try_files $uri $uri/ /index.html` | sin privilegios | — |
 
@@ -431,4 +433,4 @@ Ambos escriben en `INBOX_DIR` con el mismo UID, así que se pueden alternar.
 
 - Solo existe para `dev` y solo para los runtimes de la lista `RUNTIMES` de `mercury`. `spa` no tiene: un SPA compilado se prueba con `static`, sin el retorno a `index.html`.
 - Usa el mismo nombre de proyecto y de contenedor que un despliegue normal (`<app>-dev`), así que comparte Proxy Host en NPM. El último que se despliegue es el que queda.
-- No lee `APPS_DIR/dev/<app>.env`.
+- Lee `APPS_DIR/dev/<app>.env` (opcional) y entra en `net-db-dev`, igual que un despliegue en dev, salvo `static`, que no tiene ni lo uno ni lo otro.

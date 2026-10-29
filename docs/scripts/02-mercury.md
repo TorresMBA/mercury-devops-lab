@@ -7,7 +7,7 @@ Cómo está escrito el operador de los stacks y cómo añadirle cosas. La lista 
 | Archivo | `mercury`, en la raíz del repo |
 | Se ejecuta en | El host, desde cualquier directorio |
 | Un cambio se aplica con | `git pull`. Es inmediato: no hay copia |
-| Depende de | `docker` con compose y buildx, `git`, `sudo`, `htpasswd`, `curl`, `getent`, `awk` |
+| Depende de | `docker` con compose y buildx, `git`, `sudo`, `htpasswd`, `curl`, `getent`, `awk`, `sed`, `openssl` (`db create`) |
 
 ## Estructura del archivo
 
@@ -20,7 +20,7 @@ flowchart TB
   c["3. die y usage"]
   d["4. help sale aquí<br/>sin necesitar .env"]
   e["5. Carga del .env raíz<br/>set -a"]
-  f["6. Funciones<br/>resolve_targets, resolve_one, compose,<br/>for_stacks, valid_app, valid_env"]
+  f["6. Funciones y listas de bases de datos<br/>resolve_targets, resolve_one, compose,<br/>for_stacks, valid_app, valid_env,<br/>DB_ENGINES, valid_engine, db_running, db_client"]
   g["7. case sobre el comando"]
   a --> b --> c --> d --> e --> f --> g
 ```
@@ -112,6 +112,20 @@ registry-gc)
 
 La rama `*)` del final muestra la ayuda y termina con error ante un comando desconocido.
 
+### Ramas cortas
+
+| Comando | Cómo lo hace |
+|---|---|
+| `list` | Recorre `STACKS`, imprime el grupo al cambiar y marca cada stack como `configurado` si existe su `.env` |
+| `logs` | `compose <stack> logs -f --tail 100 [servicio]` |
+| `dns-init` | Carga el `.env` de `dns`. Si ya existe `DATA_DIR/adguard/conf/AdGuardHome.yaml`, no hace nada. Si no, calcula el hash bcrypt de `ADGUARD_PASSWORD` con `htpasswd -B`, quita los comentarios de la plantilla, sustituye `__ADGUARD_USER__`, `__ADGUARD_HASH__`, `__INT_DOMAIN__` y `__LAN_IP__`, y escribe el resultado con `sudo tee` y modo 600 |
+| `check-dns` | Cuatro pasos, y se detiene en el primero que falla con el remedio: `nslookup` dentro de `adguard`, `getent` en el host, `nslookup` en un contenedor nuevo con la imagen de AdGuard (ya descargada y trae `nslookup`) y `curl` por HTTPS. Sin AdGuard en marcha, se salta el primero y el tercero |
+| `quick` | Valida app, runtime (`RUNTIMES`) y que exista `INBOX_DIR/<app>`; exporta `RUNTIME_VERSION` si se pasa, y ejecuta el `compose.quick.yaml` del runtime con `up -d --force-recreate` |
+| `deploy` | `compose.deploy.yaml` con `APP`, `APP_ENV` e `IMAGE`, y `up -d --pull always --wait --wait-timeout 120`. No pasa `--env-file`: `APPS_DIR` llega porque el `.env` raíz se cargó con `set -a` |
+| `undeploy` | `docker compose -p <app>-<env> down`: el proyecto se llama como el contenedor |
+| `registry-user` | `sudo htpasswd -B` sobre `DATA_DIR/registry/auth/htpasswd`, con `-c` si el archivo no existe |
+| `backup` | `sudo bash host/backup.sh` |
+
 ## El comando `agents` por dentro
 
 Es la rama más larga y define sus propias funciones, que solo existen mientras se ejecuta:
@@ -174,14 +188,14 @@ Lo ejecuta también el timer `mercury-prune.timer` (`host/07-cleanup.sh`), como 
 
 ## El comando `db` por dentro
 
-Es un `case` anidado sobre el subcomando. Todos validan con `valid_env` y `valid_engine` y operan sobre `data/db-<env>` a través de `compose`, que exige su `.env`.
+Es un `case` anidado sobre el subcomando. `up` y `down` validan ambiente y motor (`down all` solo el ambiente) y operan sobre `data/db-<env>` a través de `compose`, que exige su `.env`. `create`, `drop` y `shell` validan también y entran en el contenedor con `docker exec` (`db_client`), tras comprobar con `db_running` que está en marcha. `ps` no recibe argumentos y usa `docker ps` directamente.
 
 | Subcomando | Cómo lo hace |
 |---|---|
 | `up` | `--profile <motor> up -d --wait --wait-timeout 180 <motor>`. Nombrar el servicio hace que solo arranque ese, aunque `COMPOSE_PROFILES` del `.env` active otros |
 | `down` | `rm -s -f <motor>` en lugar de `down`, para no tocar los demás motores ni la red del stack. Con `all`, `--profile '*' down` |
 | `ps` | `docker ps -a` filtrado por la etiqueta `com.docker.compose.project=db-<env>`, más `COMPOSE_PROFILES` leído del `.env` con `sed` |
-| `create` | Comprueba que el contenedor está en marcha y que el `.env` de la app no tiene ya `DB_HOST`, `DATABASE_URL`, `ConnectionStrings__Default` ni `SPRING_DATASOURCE_URL`. Genera la clave (`M` + `openssl rand -hex 24`: mayúscula, minúsculas y dígitos para la política de SQL Server, sin caracteres que escapar). Pasa el SQL por stdin a `db_client -i` con un heredoc. Con `set -e`, un error de SQL detiene el script antes de escribir el `.env` |
+| `create` | Comprueba que el contenedor está en marcha, que existe `APPS_DIR/<env>` y que el `.env` de la app no tiene ya `DB_HOST`, `DATABASE_URL`, `ConnectionStrings__Default` ni `SPRING_DATASOURCE_URL`. Genera la clave (`M` + `openssl rand -hex 24`: mayúscula, minúsculas y dígitos para la política de SQL Server, sin caracteres que escapar). Pasa el SQL por stdin a `db_client -i` con un heredoc. Con `set -e`, un error de SQL detiene el script antes de escribir el `.env` |
 | `drop` | Pide escribir el nombre de la base con `read`, y ejecuta `DROP` idempotente (`IF EXISTS`). No edita el `.env` de la app |
 | `shell` | `db_client -it`, con la base de la app si se indica |
 
@@ -244,7 +258,7 @@ Trampas concretas de este archivo:
 - **Las variables de una rama del `case` son globales**: `local` solo es válido dentro de una función. Usa nombres que no choquen con los de las listas (`STACKS`, `AGENTS`) ni con variables del `.env`.
 - **Con `set -e`, un comando que puede fallar legítimamente necesita `|| true`** o ir dentro de un `if`. Por eso las consultas de `check-dns` terminan en `|| true`.
 - **`[[ cond ]] && comando` como última línea de una función** devuelve 1 si la condición es falsa, y con `set -e` puede terminar el script. Usa `if` o añade `|| true`.
-- **Lógica duplicada con `mercury-ci`**: la expresión regular de `valid_app` y el comando de `deploy` están en los dos scripts. Un cambio en uno hay que repetirlo en el otro.
+- **Lógica duplicada con `mercury-ci`**: la expresión regular de `valid_app`, la comprobación de `dev`/`prod` de `valid_env` y el comando de `deploy` están en los dos scripts. Un cambio en uno hay que repetirlo en el otro.
 
 ## Probar sin Docker
 

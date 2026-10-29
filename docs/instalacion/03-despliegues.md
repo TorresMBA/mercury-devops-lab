@@ -81,8 +81,8 @@ Etapas del pipeline:
 
 | Etapa | Qué hace |
 |---|---|
-| Build y test | Compila y ejecuta los tests dentro del agente del lenguaje |
-| SonarQube | Envía el análisis del código |
+| Build y test | Compila y ejecuta los tests dentro del agente del lenguaje. El nombre varía según la plantilla: *Build, test y SonarQube* en .NET (una sola etapa), *Test* en Flask, *Build* en Angular; `static` no tiene |
+| SonarQube | Envía el análisis del código (en .NET va dentro de la etapa anterior) |
 | Análisis: Quality gate | Espera el veredicto de SonarQube; si no pasa el *quality gate*, el pipeline se detiene |
 | Análisis: Seguridad | A la vez que la anterior: Semgrep (fallos de seguridad en el código) y Trivy (dependencias vulnerables, secretos, configuración). El informe `semgrep.json` queda archivado en el build |
 | Imagen | Empaqueta el compilado con el `Dockerfile` del proyecto si lo tiene, o con la plantilla; publica la imagen y la escanea con Trivy |
@@ -290,7 +290,7 @@ sudo nano /srv/mercury/apps/prod/mi-api.env
 sudo chown 1000:1000 /srv/mercury/apps/prod/mi-api.env && sudo chmod 640 /srv/mercury/apps/prod/mi-api.env
 ```
 
-Lo de la base de datos no hace falta escribirlo a mano: lo añade `./mercury db create` (siguiente sección). Se aplica en el siguiente despliegue; también lo lee el modo rápido (`apps/dev/<app>.env`). Para subir el límite de memoria de una app (512 MB por defecto), define `APP_MEM_LIMIT = '1g'` en el `environment` de su Jenkinsfile.
+Lo de la base de datos no hace falta escribirlo a mano: lo añade `./mercury db create` (siguiente sección). Se aplica en el siguiente despliegue; también lo lee el modo rápido (`APPS_DIR/dev/<app>.env`, salvo el runtime `static`). Para subir el límite de memoria de una app (512 MB por defecto), define `APP_MEM_LIMIT = '1g'` en el `environment` de su Jenkinsfile.
 
 ## Base de datos de una app
 
@@ -306,7 +306,7 @@ Toda app desplegada está en la red `net-db-<env>` de su ambiente, así que bast
 
 ```bash
 ./mercury db up dev postgres              # enciende el servidor (sigue encendido hasta db down)
-./mercury db create dev postgres mi-api   # base y usuario mi_api, conexión en apps/dev/mi-api.env
+./mercury db create dev postgres mi-api   # base y usuario mi_api, conexión en /srv/mercury/apps/dev/mi-api.env
 ./mercury deploy mi-api dev 41            # o un build nuevo: el contenedor lee el .env al crearse
 ```
 
@@ -344,7 +344,7 @@ Los servidores de dev publican su puerto en la IP LAN. Desde DBeaver, HeidiSQL, 
 |---|---|
 | Servidor | `db-dev.int.<dominio>` (lo resuelve AdGuard; también vale la IP del servidor) |
 | Puerto | 5432, 3306 o 1433 |
-| Base, usuario y clave | Los que imprime `db create` (también en `apps/dev/<app>.env`) |
+| Base, usuario y clave | Los que imprime `db create` (también en `APPS_DIR/dev/<app>.env`) |
 | SQL Server | Marca *Trust server certificate*: el certificado es autofirmado |
 
 Usa el usuario de la app y no el administrador (`postgres`, `root`, `sa`), salvo para tareas de administración. Prod no publica puertos: se administra desde el servidor con `./mercury db shell prod <motor> [app]`.
@@ -374,6 +374,6 @@ docker logs -f mi-api-prod                        # logs (también en Grafana: {
 
 ## Dos ambientes en un servidor
 
-Dev y prod están separados por red, no por máquina: un contenedor de `net-apps-dev` no puede hablar con uno de `net-apps-prod`, y el túnel de Cloudflare solo ve prod. Comparten CPU y RAM, así que el límite de memoria por contenedor es lo que evita que una prueba en dev afecte a producción.
+Dev y prod están separados por red, no por máquina: un contenedor de `net-apps-dev` no puede hablar con uno de `net-apps-prod`. El túnel de Cloudflare ve los dos: dev para que usuarios prueben y reporten bugs, prod para producción; qué se publica lo decide cada *Public Hostname*. Comparten CPU y RAM, así que el límite de memoria por contenedor es lo que evita que una prueba en dev afecte a producción.
 
 Las bases de datos siguen la misma separación: cada ambiente tiene sus propios servidores en su red (`net-db-dev`, `net-db-prod`), así que una app de dev no puede llegar a la base de prod. Ver [Base de datos de una app](#base-de-datos-de-una-app).

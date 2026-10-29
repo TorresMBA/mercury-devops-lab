@@ -41,7 +41,7 @@ El script asume cosas que solo son ciertas dentro de un agente:
 flowchart TB
   a["1. set -euo pipefail<br/>y comprobación de REGISTRY_HOST"]
   b["2. Constantes configurables<br/>TEMPLATES, AGENT_NETWORK, APPS_DIR,<br/>imágenes de escáneres, STRICT, SEVERITY, SCAN_MEMORY"]
-  c["3. SELF: ID del contenedor"]
+  c["3. SELF: ID del contenedor<br/>TRIVY_DB_MARK"]
   d["4. Funciones<br/>die, usage, valid_app, image_ref,<br/>in_workspace, trivy_retry, trivy_exit_code"]
   e["5. case sobre el paso"]
   a --> b --> c --> d --> e
@@ -64,7 +64,7 @@ Todas siguen el patrón `NOMBRE="${VARIABLE_DE_ENTORNO:-valor por defecto}"`: un
 | `SCAN_MEMORY` | `MERCURY_SCAN_MEMORY` | `1536m` |
 | `TRIVY_DB_MARK` | `MERCURY_TRIVY_DB_MARK` | `/tmp/mercury-trivy-db-al-dia` |
 
-`TRIVY_DB_MARK` es un archivo vacío que `trivy-fs` crea al terminar bien. `trivy-image` comprueba si existe y, en ese caso, añade `--skip-db-update`: la base de datos se actualiza una sola vez por build. Está en `/tmp` y no en el *workspace* porque el *workspace* puede ser el contexto de `docker build` (en `flask` y `node` lo es) y el archivo acabaría dentro de la imagen. Como `/tmp` es del contenedor del agente, el marcador desaparece con él: en el canal manual y en *Deploy prod*, que usan otro agente, no existe.
+`TRIVY_DB_MARK` es un archivo vacío que `trivy-fs` crea al terminar bien. `trivy-image` comprueba si existe y, en ese caso, añade `--skip-db-update`: la base de datos se actualiza una sola vez por build. Está en `/tmp` y no en el *workspace* porque el *workspace* puede ser el contexto de `docker build` (en `flask`, `node` y `static` lo es) y el archivo acabaría dentro de la imagen. Como `/tmp` es del contenedor del agente, el marcador desaparece con él: en el canal manual y en *Deploy prod*, que usan otro agente, no existe.
 
 `APPS_DIR` se exporta porque no la usa el script, sino `compose.deploy.yaml`, que la recibe del entorno.
 

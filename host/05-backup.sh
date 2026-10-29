@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prepara el repositorio restic en el HDD y programa el backup diario.
-# Uso: sudo ./host/05-backup.sh
+# Uso: sudo bash host/05-backup.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 pass_file=/root/.mercury-restic-password

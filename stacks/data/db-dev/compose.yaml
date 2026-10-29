@@ -83,7 +83,7 @@ services:
     mem_limit: 2g
 
 networks:
-  # Interna: la comparten las apps de dev (compose.deploy.yaml y compose.quick.yaml)
+  # Interna: la comparten las apps de dev (compose.deploy.yaml y compose.quick.yaml, salvo static)
   db:
     name: net-db-dev
     external: true

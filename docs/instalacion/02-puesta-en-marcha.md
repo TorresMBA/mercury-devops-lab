@@ -169,9 +169,9 @@ Solo hace falta para publicar apps en internet; puedes dejarlo para después.
 3. `./mercury up edge`
 4. En el túnel, añade un *Public Hostname*: `whoami.tudominio.com` → servicio `http://whoami-prod:8080`.
 
-**Verificación.** `https://whoami.tudominio.com` responde desde el móvil con datos (sin wifi). Después quita `test` de `COMPOSE_PROFILES`, ejecuta `./mercury compose edge --profile test down` y borra ese hostname.
+**Verificación.** `https://whoami.tudominio.com` responde desde el móvil con datos (sin wifi). Después quita `test` de `COMPOSE_PROFILES`, ejecuta `./mercury compose edge --profile test rm -s -f whoami` y borra ese hostname. (`down` sin nombre de servicio eliminaría también `npm` y `cloudflared`.)
 
-Para publicar una app real: *Public Hostname* `app.tudominio.com` → `http://<app>-prod:8080`. El túnel apunta directo a la app y solo puede alcanzar contenedores de `net-apps-prod`; aunque añadas por error un hostname hacia `jenkins:8080`, no resolverá.
+Para publicar una app real: *Public Hostname* `app.tudominio.com` → `http://<app>-prod:8080`. El túnel también ve dev, el ambiente donde usuarios de prueba buscan bugs antes de prod: `app-dev.tudominio.com` → `http://<app>-dev:8080`. Apunta directo a la app y solo alcanza contenedores de `net-apps-dev` y `net-apps-prod`; aunque añadas por error un hostname hacia `jenkins:8080`, no resolverá.
 
 ## Fase 2. Registry
 
@@ -287,7 +287,7 @@ bash stacks/monitoring/grafana/fetch-dashboards.sh       # dashboards de la comu
 
 **Verificación.**
 
-- En Grafana (`https://grafana.int.<dominio>`), ☰ > Dashboards > carpeta *Mercury* (la página de inicio no la muestra): *Mercury - Host*, *Mercury - CI/CD* y *Mercury - Apps* tienen datos. Cómo leerlos: [monitorizacion.md](../monitorizacion.md).
+- En Grafana (`https://grafana.int.<dominio>`), ☰ > Dashboards > carpeta *Mercury* (la página de inicio no la muestra): *Mercury - Resumen*, *Mercury - Host*, *Mercury - CI/CD* y *Mercury - Apps* tienen datos. Cómo leerlos: [monitorizacion.md](../monitorizacion.md).
 - *Explore > Loki*: la consulta `{stack="jenkins"}` devuelve los logs de Jenkins.
 - Prometheus no se publica. Para ver sus *targets*: `docker exec prometheus wget -qO- localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health}'`. Todos deben estar `up`.
 
@@ -329,7 +329,7 @@ nano stacks/data/db-prod/.env
 
 **Verificación.**
 
-- `./mercury db create dev postgres prueba` imprime la conexión y la añade a `apps/dev/prueba.env`.
+- `./mercury db create dev postgres prueba` imprime la conexión y la añade a `/srv/mercury/apps/dev/prueba.env` (`APPS_DIR`).
 - Desde Windows, DBeaver conecta a `db-dev.int.<dominio>:5432` con el usuario `prueba`.
 - `Test-NetConnection <IP_DEL_SERVIDOR> -Port 5432` funciona con `pg-dev` encendida y falla tras `./mercury db down dev postgres`. Prod nunca responde desde la LAN.
 - Limpieza: `./mercury db drop dev postgres prueba` y `sudo rm /srv/mercury/apps/dev/prueba.env`.

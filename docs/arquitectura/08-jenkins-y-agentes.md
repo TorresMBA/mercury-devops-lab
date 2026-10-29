@@ -73,7 +73,7 @@ Cada variable a `1` habilita una familia de llamadas a la API de Docker:
 | `CONTAINERS`, `POST` | Crear, arrancar y borrar agentes, escáneres y apps |
 | `EXEC` | Arrancar el proceso del agente dentro del contenedor (conector *attach*) |
 | `IMAGES`, `DISTRIBUTION`, `AUTH` | `pull`, `push`, `login` y consulta de manifiestos |
-| `NETWORKS`, `VOLUMES` | Conectar contenedores a redes; la caché de Trivy |
+| `NETWORKS`, `VOLUMES` | Conectar contenedores a redes; los volúmenes con nombre: la caché de Trivy y las de dependencias de los agentes (`mercury-cache-*`) |
 | `INFO` | `docker version` e `info` |
 | `BUILD`, `SESSION`, `GRPC` | `docker buildx build` con BuildKit |
 

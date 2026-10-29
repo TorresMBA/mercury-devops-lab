@@ -87,7 +87,7 @@ Para modificar los scripts en sí (añadir un comando a `mercury` o un paso a `m
 4. Datos: bind-mount en `${DATA_DIR}/<nombre>` o `${HDD_DIR}/<nombre>`, y su línea `mk` en `host/02-disks.sh` con el UID de la imagen.
 5. Añade `<grupo>/<nombre>` a la lista `STACKS` de `mercury`, en la posición en que deba arrancar.
 6. Suma su `mem_limit` a las tablas de `README.md` y de [06-arquitectura.md](06-arquitectura.md#presupuesto-de-memoria).
-7. Si tiene base de datos, añade su volcado a `host/backup.sh`.
+7. Si tiene base de datos, añade su volcado a `host/backup.sh`. Si es un servicio de la plataforma de CI/CD, añádelo a la lista de servicios del dashboard `mercury-cicd.json`.
 8. En el servidor: `sudo bash host/02-disks.sh`, copiar el `.env`, `./mercury config <nombre>`, `./mercury up <nombre>`, y crear su Proxy Host en NPM.
 
 Si expone métricas, añade un `job_name` a `prometheus.yml` y conecta el servicio a una red que Prometheus comparta (`net-tools` o `net-obs`).

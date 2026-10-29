@@ -11,8 +11,8 @@ Un contenedor solo alcanza a los contenedores con los que comparte red, y los al
 | Red | Tipo | La crea | Quién está | Para qué |
 |---|---|---|---|---|
 | `net-tools` | externa | `host/04-networks.sh` | `npm`, `adguard`, `portainer`, `registry`, `registry-ui`, `jenkins`, `sonarqube`, `prometheus`, `grafana` | Herramientas internas; NPM las enruta por nombre |
-| `net-apps-dev` | externa | `host/04-networks.sh` | `npm`, apps `<app>-dev` | Apps en dev |
-| `net-apps-prod` | externa | `host/04-networks.sh` | `npm`, `cloudflared`, `whoami-prod`, apps `<app>-prod` | Apps en prod; única red que ve el túnel |
+| `net-apps-dev` | externa | `host/04-networks.sh` | `npm`, `cloudflared`, apps `<app>-dev` | Apps en dev; el túnel la ve para que usuarios de prueba busquen bugs |
+| `net-apps-prod` | externa | `host/04-networks.sh` | `npm`, `cloudflared`, `whoami-prod`, apps `<app>-prod` | Apps en prod; el túnel publica producción |
 | `net-obs` | externa e interna | `host/04-networks.sh` | `prometheus`, `cadvisor`, `loki`, `alloy`, `grafana` | Observabilidad, sin salida a otras redes |
 | `net-db-dev` | externa e interna | `host/04-networks.sh` | `pg-dev`, `mariadb-dev`, `mssql-dev`, apps `<app>-dev` | Apps de dev con sus servidores de base de datos |
 | `net-db-prod` | externa e interna | `host/04-networks.sh` | `pg-prod`, `mariadb-prod`, `mssql-prod`, apps `<app>-prod` | Apps de prod con sus servidores de base de datos |
@@ -71,6 +71,7 @@ flowchart LR
   loki --- NO
   graf --- NT
   graf --- NO
+  cfd --- ND
   cfd --- NP
   appdev --- ND
   appprod --- NP
@@ -82,7 +83,7 @@ flowchart LR
 
 Lo que se deduce del diagrama:
 
-- **`cloudflared` solo está en `net-apps-prod`.** Aunque alguien añada por error un hostname público hacia `jenkins:8080`, ese nombre no resuelve desde el túnel.
+- **`cloudflared` solo está en las redes de apps** (`net-apps-dev` y `net-apps-prod`). Dev queda así disponible para que usuarios de prueba encuentren bugs antes de promover a prod. Aunque alguien añada por error un hostname público hacia `jenkins:8080`, ese nombre no resuelve desde el túnel. Estar en las dos redes no las une: `cloudflared` solo reenvía hacia los *Public Hostname* configurados.
 - **Los agentes solo están en `mercury-jenkins`.** No comparten red con el registry ni con SonarQube: los alcanzan por su nombre interno (`https://registry.int.<dominio>`), pasando por NPM. Por eso los contenedores necesitan resolver `*.int.<dominio>`.
 - **Una app en dev no puede hablar con una en prod**, ni con ninguna herramienta.
 - **Prometheus está en dos redes**: `net-obs` para leer cAdvisor, Loki, Alloy y Grafana, y `net-tools` para leer Jenkins y llegar al host.
@@ -239,6 +240,8 @@ sequenceDiagram
   T-->>CF: respuesta
   CF-->>V: respuesta
 ```
+
+Una app de dev se publica igual, con `app-dev.dominio` → `http://<app>-dev:8080` por `net-apps-dev`. Usa un subdominio de un solo nivel también aquí, por el mismo motivo que en `*.int`: el certificado universal de Cloudflare cubre `*.dominio`, no `*.dev.dominio`.
 
 No se abre ningún puerto en el router. El túnel apunta directo a la app, sin pasar por NPM: es una decisión de diseño, para que internet nunca tenga un camino hacia las herramientas.
 

@@ -87,7 +87,7 @@ La versión debe existir como etiqueta en la imagen de origen del agente (`dotne
 
 ## Backups
 
-`host/backup.sh` copia cada noche a `/mnt/hdd/mercury/backups/restic`: los datos de `/srv/mercury`, un volcado de la base de datos de SonarQube, los archivos `.env` y el `credentials.env` de Jenkins.
+`host/backup.sh` copia cada noche a `/mnt/hdd/mercury/backups/restic`: los datos de `/srv/mercury` (incluido `APPS_DIR`), un volcado de la base de datos de SonarQube y de cada servidor de base de datos de prod que esté en marcha (`pg-prod`, `mariadb-prod`, `mssql-prod`), los archivos `.env` y el `credentials.env` de Jenkins. Las bases de dev no se copian.
 
 ```bash
 sudo restic -r /mnt/hdd/mercury/backups/restic --password-file /root/.mercury-restic-password snapshots
@@ -116,6 +116,10 @@ Cada servicio nuevo sigue la misma receta:
 4. Red privada `internal: true` para sus bases de datos.
 5. Datos en `${DATA_DIR}/<nombre>` (SSD) o `${HDD_DIR}/<nombre>` (HDD); añade el directorio a `host/02-disks.sh`.
 6. Añade `<grupo>/<nombre>` a la lista `STACKS` del script `mercury`, en la posición en que deba arrancar. El nombre corto debe ser único entre todos los grupos.
+7. Suma su `mem_limit` a la tabla de RAM de `README.md`: el servidor tiene 12 GB y todo lo que se añade compite con los builds.
+8. Si es un servicio de la plataforma de CI/CD, añádelo a la lista de servicios del dashboard `stacks/monitoring/grafana/dashboards/mercury-cicd.json`.
+
+La receta completa, con el volcado de su base de datos en `host/backup.sh` y las tablas que hay que actualizar en la documentación, está en [13-mantenimiento-y-extension.md](../arquitectura/13-mantenimiento-y-extension.md#añadir-un-stack).
 
 ### Candidatos por grupo
 

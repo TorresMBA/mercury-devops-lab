@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Crea las redes compartidas entre stacks. Cada compose las declara como "external".
 #   net-tools      herramientas internas (Jenkins, SonarQube, Grafana, registry...)
-#   net-apps-dev   apps desplegadas en dev
-#   net-apps-prod  apps desplegadas en prod (única red que ve cloudflared)
+#   net-apps-dev   apps desplegadas en dev (las ve cloudflared: ambiente de pruebas para usuarios)
+#   net-apps-prod  apps desplegadas en prod (las ve cloudflared)
 #   net-obs        privada del grupo monitoring, sin salida a otras redes
 #   net-db-dev     apps de dev y sus servidores de base de datos (stacks/data/db-dev), interna
 #   net-db-prod    apps de prod y sus servidores de base de datos (stacks/data/db-prod), interna

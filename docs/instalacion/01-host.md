@@ -54,7 +54,7 @@ Son idempotentes: se pueden repetir sin efectos secundarios. `02-disks.sh` solo 
 sudo ./host/01-base.sh       # paquetes, kernel, swap, usuario SFTP, SSH, firewall
 sudo ./host/02-disks.sh      # monta el HDD y crea /srv/mercury y /mnt/hdd/mercury
 sudo ./host/03-docker.sh     # Docker Engine + daemon.json
-sudo ./host/04-networks.sh   # redes net-tools, net-apps-dev, net-apps-prod, net-obs
+sudo ./host/04-networks.sh   # redes net-tools, net-apps-dev, net-apps-prod, net-obs, net-db-dev, net-db-prod
 sudo passwd deployer         # contraseña del usuario del canal manual (SFTP)
 ```
 
@@ -69,14 +69,16 @@ Qué hace cada cosa y por qué:
 | `vm.max_map_count=524288` | Requisito del Elasticsearch embebido de SonarQube; sin él no arranca |
 | Swap hasta 8 GB, `swappiness=10` | Colchón para picos de memoria durante los builds sin usar swap en condiciones normales |
 | SSH sin root y solo con llaves | El acceso por contraseña solo queda para `deployer`, que está limitado a SFTP dentro de su carpeta |
-| UFW: denegar todo lo entrante salvo 22, 80, 443 (y 53, 81, 445 desde la LAN) | Reduce lo expuesto al mínimo |
+| UFW: denegar todo lo entrante salvo 22, 80, 443 (y 53, 81, 445, 1433, 3306, 5432 desde la LAN) | Reduce lo expuesto al mínimo. Los tres últimos son las bases de datos de dev, para conectarse desde Windows |
+| UFW: 9100 y 9323 desde `10.200.0.0/16` | Prometheus, que corre en un contenedor, lee node-exporter y las métricas del daemon en el host |
+| `net.ipv4.ip_nonlocal_bind=1` | Los puertos ligados a `LAN_IP` se reservan aunque la IP aún no exista al arrancar (DHCP lento): sin él, AdGuard, NPM :81, Samba y db-dev quedarían caídos |
 | `daemon.json`: rotación de logs | Sin ella, los logs de los contenedores crecen hasta llenar el disco |
 | `daemon.json`: `live-restore` | Los contenedores siguen en marcha mientras se actualiza el daemon de Docker |
 | `daemon.json`: `default-address-pools` | Todas las redes de Docker salen de `10.200.0.0/16`: predecible y sin choques con la LAN |
 | `daemon.json`: `metrics-addr` | Prometheus lee las métricas del propio daemon |
 | `daemon.json`: `builder.gc` | La caché de build no pasa de 10 GB |
 
-> **Docker y UFW.** Los puertos que un contenedor publica con `ports:` no pasan por UFW: Docker escribe sus propias reglas de red. Por eso la protección real es que solo Nginx Proxy Manager, AdGuard y Samba publiquen puertos, y que los puertos de administración se liguen a la IP de la LAN.
+> **Docker y UFW.** Los puertos que un contenedor publica con `ports:` no pasan por UFW: Docker escribe sus propias reglas de red. Por eso la protección real es que solo Nginx Proxy Manager, AdGuard, Samba y las bases de datos de dev publiquen puertos, y que los puertos de administración se liguen a la IP de la LAN.
 
 ## Verificación
 
@@ -87,11 +89,11 @@ sysctl net.ipv4.ip_nonlocal_bind           # 1
 free -h                                    # swap total ~8 GB
 df -h /srv /mnt/hdd                        # el HDD montado en /mnt/hdd
 docker info | grep -A3 "Default Address"   # 10.200.0.0/16
-docker network ls                          # net-tools, net-apps-dev, net-apps-prod, net-obs
+docker network ls                          # net-tools, net-apps-dev, net-apps-prod, net-obs, net-db-dev, net-db-prod
 ```
 
-Desde otra PC de la LAN, comprueba que solo responden los puertos previstos (22 ahora; 53, 80, 443, 81 y 445 cuando levantes los stacks):
+Desde otra PC de la LAN, comprueba que solo responden los puertos previstos (22 ahora; 53, 80, 443, 81 y 445 cuando levantes los stacks; 5432, 3306 y 1433 solo con el motor de dev encendido):
 
 ```powershell
-22,53,80,443,81,445,8080,9000,9090 | % { "$_ : " + (Test-NetConnection IP_DEL_SERVIDOR -Port $_ -WarningAction SilentlyContinue).TcpTestSucceeded }
+22,53,80,443,81,445,5432,3306,1433,8080,9000,9090 | % { "$_ : " + (Test-NetConnection IP_DEL_SERVIDOR -Port $_ -WarningAction SilentlyContinue).TcpTestSucceeded }
 ```

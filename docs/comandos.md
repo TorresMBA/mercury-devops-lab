@@ -43,7 +43,7 @@ Un `<destino>` es un stack (`jenkins`), un grupo (`devops`) o `all`. Un `<stack>
 | `./mercury agents <agente>[:<versión>] ...` | Construye y publica solo esos. Sin versión, la de por defecto. La base no se reconstruye si ya existe |
 | `./mercury agents base` | Construye y publica solo la imagen base |
 | `./mercury agents` | Reconstruye la base y todos los agentes ya publicados. **Es el que aplica un cambio de `mercury-ci` o de `apps/_templates/`** |
-| `./mercury agents rollback <agente>:<versión> <commit>` | Devuelve la etiqueta de versión a la imagen construida en ese commit |
+| `./mercury agents rollback <agente>:<versión> <commit>` | Devuelve la etiqueta de versión a la imagen construida en ese commit. Con `base` en lugar de `<agente>:<versión>`, devuelve `base:current` |
 
 ### Apps
 
@@ -186,10 +186,12 @@ La prueba en seco de los scripts con un `docker` simulado está en [scripts/02-m
 |---|---|
 | `compose.yaml` o `.env` de un stack | `./mercury up <stack>` |
 | `compose.yaml` o `.env` de `db-dev` / `db-prod` | `./mercury db up <env> <motor>` por cada motor encendido (`up` solo recrea los de `COMPOSE_PROFILES`) |
-| `stacks/devops/jenkins/casc/*.yaml` | `./mercury restart jenkins` |
+| `stacks/devops/jenkins/casc/*.yaml` o `pipelines/manual-release/Jenkinsfile` | `./mercury restart jenkins` |
 | `plugins.txt` o `JENKINS_VERSION` | `./mercury build jenkins && ./mercury up jenkins` |
-| `pipelines/lib/mercury-ci` o `apps/_templates/` | `./mercury agents` |
-| `stacks/devops/jenkins/agents/<agente>` | `./mercury agents <agente>:<versión>` |
+| `pipelines/lib/mercury-ci`, `apps/_templates/`, `agents/base` o `AGENT_VERSION` | `./mercury agents` |
+| Un Jenkinsfile de `apps/_templates/` | `./mercury agents`, y copiarlo de nuevo a cada repo de app |
+| `stacks/devops/jenkins/agents/<agente>` o la lista `AGENTS` | `./mercury agents <agente>:<versión>`, y `./mercury restart jenkins` si hay plantilla nueva |
+| `stacks/core/dns/AdGuardHome.yaml.tmpl` | Nada: solo afecta a instalaciones nuevas |
 | La versión de una imagen de terceros | `./mercury pull <stack> && ./mercury up <stack>` |
 | `host/files/daemon.json` | `sudo bash host/03-docker.sh` |
 

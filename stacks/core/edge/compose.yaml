@@ -1,6 +1,6 @@
 # Entrada al servidor.
 #   npm          único contenedor que publica 80/443; enruta a herramientas y apps por nombre
-#   cloudflared  túnel saliente a Cloudflare; solo ve net-apps-prod (perfil: tunnel)
+#   cloudflared  túnel saliente a Cloudflare; solo ve las redes de apps, dev y prod (perfil: tunnel)
 #   whoami       app de prueba para validar NPM y el túnel (perfil: test)
 name: edge
 

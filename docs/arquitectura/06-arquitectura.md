@@ -38,6 +38,10 @@ flowchart TB
     subgraph sto["Grupo storage"]
       samba["Samba :445"]
     end
+    subgraph data["Grupo data (a demanda)"]
+      dbdev["db-dev<br/>pg / mariadb / mssql<br/>:5432 :3306 :1433"]
+      dbprod["db-prod<br/>pg / mariadb / mssql"]
+    end
     subgraph apps["Apps desplegadas"]
       dev["app-dev"]
       prod["app-prod"]
@@ -56,7 +60,11 @@ flowchart TB
   npm --> prod
   visitor --> cf
   cf -.->|"túnel saliente"| cloudflared
+  cloudflared --> dev
   cloudflared --> prod
+  pc -->|"clientes SQL"| dbdev
+  dev --> dbdev
+  prod --> dbprod
   jenkins --> proxy
   proxy -->|"crea y destruye"| agents
   jenkins -->|"lee el repo"| scm
@@ -71,7 +79,7 @@ flowchart TB
 Hay dos puertas de entrada y no se cruzan:
 
 - **Desde la LAN**, todo pasa por Nginx Proxy Manager con HTTPS, bajo nombres `*.int.<dominio>` que solo AdGuard conoce.
-- **Desde internet**, lo único alcanzable son las apps de producción, a través del túnel de Cloudflare, que apunta directo al contenedor de la app sin pasar por NPM.
+- **Desde internet**, lo único alcanzable son las apps, a través del túnel de Cloudflare, que apunta directo al contenedor de la app sin pasar por NPM. El túnel ve los dos ambientes: dev, para que usuarios de prueba encuentren bugs antes de promover, y prod. Qué app se publica lo decide cada *Public Hostname* en Cloudflare.
 
 ## Estructura del repo
 
@@ -81,7 +89,7 @@ mercury                       Operador de los stacks (bash). Fuente de verdad de
 .dockerignore                 Filtra el contexto de build de la imagen base de agentes
 host/                         Preparación de Ubuntu, en scripts numerados
   _common.sh                  Carga .env y define constantes; lo incluyen todos los demás
-  01-base.sh … 06-dns.sh      Paquetes, discos, Docker, redes, backup, DNS
+  01-base.sh … 07-cleanup.sh  Paquetes, discos, Docker, redes, backup, DNS, limpieza semanal
   backup.sh                   Backup diario (lo llama un timer de systemd)
   migrate-layout.sh           Migración única a la estructura por grupos
   files/                      daemon.json base y parámetros de kernel
@@ -239,9 +247,9 @@ Al añadir un servicio, su `mem_limit` se suma a esta tabla y a la de `README.md
 | Puertos de contenedores | Solo NPM, AdGuard, Samba y las bases de datos de dev usan `ports:`, ligados a `LAN_IP` salvo 80 y 443 | Composes de `core`, `storage` y `data/db-dev` |
 | Entre contenedores | Redes separadas por función; bases de datos en red `internal` | [07-redes-y-dns.md](07-redes-y-dns.md) |
 | Bases de datos de apps | Servidor separado por ambiente; un usuario por app, limitado a su base | `stacks/data`, `./mercury db create` |
-| Internet hacia dentro | Solo el túnel, y solo hacia `net-apps-prod` | `stacks/core/edge` |
+| Internet hacia dentro | Solo el túnel, y solo hacia `net-apps-dev` y `net-apps-prod` | `stacks/core/edge` |
 | Docker desde Jenkins | A través de `socket-proxy`, en una red no compartida | `stacks/devops/jenkins` |
-| Contenedores | `no-new-privileges` salvo donde rompe o no está probado (Samba, cAdvisor, AdGuard) | Composes |
+| Contenedores | `no-new-privileges` salvo donde rompe o no está probado (Samba, cAdvisor, AdGuard, socket-proxy, registry-ui, Alloy, node-exporter) | Composes |
 | Secretos | Fuera de git (`.env`, `credentials.env`, `APPS_DIR`) | `.gitignore` |
 
 Límites que conviene tener presentes, porque no son evidentes:

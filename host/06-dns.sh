@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Hace que el servidor y sus contenedores resuelvan los nombres internos con AdGuard Home.
 # Requiere AdGuard en marcha: ./mercury dns-init && ./mercury up dns
-# Uso: sudo ./host/06-dns.sh
+# Uso: sudo bash host/06-dns.sh
 . "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 probe="comprobacion.$INT_DOMAIN"

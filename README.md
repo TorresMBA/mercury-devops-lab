@@ -15,15 +15,15 @@ Infraestructura como código de un servidor doméstico de CI/CD sobre Docker: Je
        Cloudflare Tunnel       Nginx Proxy Manager (:443)
               │                         │
               │            ┌── net-tools ──── jenkins, sonarqube, registry, grafana, adguard, portainer
-              │            ├── net-apps-dev ─ apps dev
-              └────────────┴── net-apps-prod  apps prod  ◄── único destino del túnel
+              ├────────────┼── net-apps-dev ─ apps dev   ◄── túnel: pruebas de usuarios
+              └────────────┴── net-apps-prod  apps prod  ◄── túnel: producción
 
   apps dev  ── net-db-dev  ── pg / mariadb / mssql dev   (:5432 :3306 :1433 en la IP LAN, para Windows)
   apps prod ── net-db-prod ── pg / mariadb / mssql prod  (sin puertos publicados)
 ```
 
 - Las herramientas solo se ven en la LAN, con HTTPS real (`*.int.<dominio>`). Un registro público de Cloudflare (`A *.int` → IP LAN) los resuelve en cualquier equipo sin configurar su DNS; el servidor y los contenedores usan AdGuard Home.
-- Lo público sale únicamente por el túnel de Cloudflare, que apunta directo a la app y solo alcanza la red de apps de producción.
+- Lo público sale únicamente por el túnel de Cloudflare, que apunta directo a la app y solo alcanza las redes de apps: dev, para que usuarios prueben y encuentren bugs, y prod. Las herramientas nunca son alcanzables desde internet.
 - Solo Nginx Proxy Manager, AdGuard (DNS), Samba y las bases de datos de dev publican puertos, ligados a la LAN. El resto se alcanza por nombre de contenedor dentro de las redes de Docker.
 - Las apps no traen su propia base de datos: hay un servidor por motor (PostgreSQL, MariaDB, SQL Server) y ambiente, con una base por app, y se encienden a demanda (`./mercury db up dev postgres`).
 
@@ -31,9 +31,9 @@ Infraestructura como código de un servidor doméstico de CI/CD sobre Docker: Je
 
 | Ruta                      | Contenido                                                                                   |
 | ------------------------- | ------------------------------------------------------------------------------------------- |
-| `host/`                   | Scripts numerados que preparan Ubuntu: firewall, SSH, discos, Docker, redes, backups, DNS   |
+| `host/`                   | Scripts numerados que preparan Ubuntu: firewall, SSH, discos, Docker, redes, backups, DNS y limpieza semanal; más `backup.sh` (lo llama el timer) y `migrate-layout.sh` (migración única) |
 | `stacks/<grupo>/<stack>/` | Un directorio por stack, cada uno con su `compose.yaml` y su `.env.example`                 |
-| `apps/_templates/`        | Por runtime: `Dockerfile` de empaquetado, `Jenkinsfile` de ejemplo y compose de modo rápido |
+| `apps/_templates/`        | `compose.deploy.yaml` (único compose de despliegue) y, por runtime, `Dockerfile` de empaquetado, `Jenkinsfile` de ejemplo y compose de modo rápido (`spa` no tiene modo rápido y trae tres Jenkinsfile: Angular, React y Vue) |
 | `pipelines/`              | `mercury-ci` (pasos compartidos de los pipelines) y el job del canal manual                 |
 | `mercury`                 | Script para operar los stacks: `./mercury help`, `./mercury list`                           |
 | `docs/`                   | `instalacion/` (guías), `arquitectura/` (cómo está construido) y `scripts/` (interior de los bash) |
@@ -57,7 +57,7 @@ Sin las bases de datos, los límites suman unos 8,5 GB; el uso real en reposo es
 
 Cada servidor de base de datos cuenta solo mientras está encendido: PostgreSQL y MariaDB 0,5 GB cada uno, SQL Server 2 GB. No caben todos a la vez con el resto: enciende solo los motores que usen tus apps y, si hace falta SQL Server en los dos ambientes, apaga SonarQube mientras tanto (`./mercury down sonarqube`).
 
-Los comandos de `mercury` aceptan un stack, un grupo o `all`: `./mercury up jenkins`, `./mercury up monitoring`, `./mercury ps all`.
+Los comandos de stacks de `mercury` (`up`, `down`, `restart`, `ps`, `pull`, `config`) aceptan un stack, un grupo o `all`: `./mercury up jenkins`, `./mercury up monitoring`, `./mercury ps all`. `logs`, `build` y `compose` necesitan un único stack.
 
 Los agentes de build tienen un catálogo de versiones (.NET 8/9/10, Java 8 a 25, Node 20/22/24, Python 3.11 a 3.13) y se publican bajo demanda: `./mercury agents list`, `./mercury agents dotnet:8.0`. En el Jenkinsfile se elige con `agent { label 'dotnet-8.0' }`.
 

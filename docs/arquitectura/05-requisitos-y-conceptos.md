@@ -69,7 +69,7 @@ El procedimiento completo de validación está en [13-mantenimiento-y-extension.
 |---|---|---|---|---|
 | AdGuard Home | `adguard/adguardhome` | `v0.107.79` | DNS de la LAN: resuelve `*.int.<dominio>` hacia el servidor | `core/dns` |
 | Nginx Proxy Manager (NPM) | `jc21/nginx-proxy-manager` | `2.16.0` | Proxy inverso con HTTPS y certificado wildcard | `core/edge` |
-| cloudflared | `cloudflare/cloudflared` | `2026.9.3` | Túnel saliente hacia Cloudflare para publicar apps de prod | `core/edge` (perfil `tunnel`) |
+| cloudflared | `cloudflare/cloudflared` | `2026.9.3` | Túnel saliente hacia Cloudflare para publicar apps de dev (pruebas de usuarios) y de prod | `core/edge` (perfil `tunnel`) |
 | whoami | `traefik/whoami` | `v1.12.0` | App de prueba para validar NPM y el túnel | `core/edge` (perfil `test`) |
 | Portainer CE | `portainer/portainer-ce` | `2.39.8` | Vista web de Docker. Opcional | `core/management` |
 | Registry | `registry` | `3.1.2` | Almacén privado de imágenes (agentes y apps) | `devops/registry` |
@@ -79,6 +79,9 @@ El procedimiento completo de validación está en [13-mantenimiento-y-extension.
 | docker-socket-proxy | `tecnativa/docker-socket-proxy` | `v0.5.0` | Expone a Jenkins una parte de la API de Docker | `devops/jenkins` |
 | SonarQube Community | `sonarqube` | `26.9.0.129388-community` | Calidad de código y *quality gate* | `devops/sonarqube` |
 | PostgreSQL | `postgres` | `17.11-alpine` | Base de datos de SonarQube | `devops/sonarqube` |
+| PostgreSQL | `postgres` | `17.11-alpine` | Servidor de bases de datos de apps, a demanda (`pg-dev`, `pg-prod`) | `data/db-dev`, `data/db-prod` (perfil `postgres`) |
+| MariaDB | `mariadb` | `11.4.8` | Servidor de bases de datos de apps, a demanda (`mariadb-dev`, `mariadb-prod`) | `data/db-dev`, `data/db-prod` (perfil `mariadb`) |
+| SQL Server | `mcr.microsoft.com/mssql/server` | `2022-CU20-ubuntu-22.04` | Servidor de bases de datos de apps, a demanda (`mssql-dev`, `mssql-prod`) | `data/db-dev`, `data/db-prod` (perfil `mssql`) |
 | Prometheus | `prom/prometheus` | `v3.15.0` | Recoge y guarda métricas; evalúa alertas | `monitoring/metrics` |
 | node-exporter | `prom/node-exporter` | `v1.12.1` | Métricas del host | `monitoring/metrics` |
 | cAdvisor | `gcr.io/cadvisor/cadvisor` | `v0.55.1` | Métricas por contenedor | `monitoring/metrics` |
@@ -105,7 +108,7 @@ Los plugins de Jenkins (`stacks/devops/jenkins/plugins.txt`) no llevan versión 
 
 **Stack.** Un proyecto de Docker Compose independiente: una carpeta `stacks/<grupo>/<stack>` con su `compose.yaml` y su `.env.example`. Se levanta y se detiene por separado. Su `name:` es el nombre corto (`jenkins`), único entre todos los grupos.
 
-**Grupo.** Carpeta que agrupa stacks por función (`core`, `devops`, `monitoring`, `storage`). Solo organiza: no tiene efecto en Docker.
+**Grupo.** Carpeta que agrupa stacks por función (`core`, `devops`, `monitoring`, `storage`, `data`). Solo organiza: no tiene efecto en Docker.
 
 **Destino.** Lo que aceptan los comandos de `mercury`: un stack (`jenkins`), un grupo (`devops`) o `all`.
 
@@ -169,6 +172,6 @@ Los plugins de Jenkins (`stacks/devops/jenkins/plugins.txt`) no llevan versión 
 
 ### Datos
 
-**Bind-mount.** Montar una ruta del host dentro de un contenedor. Todos los datos persistentes usan bind-mounts bajo `DATA_DIR` o `HDD_DIR`, no volúmenes con nombre (salvo la caché de Trivy).
+**Bind-mount.** Montar una ruta del host dentro de un contenedor. Todos los datos persistentes usan bind-mounts bajo `DATA_DIR` o `HDD_DIR`, no volúmenes con nombre. Las excepciones son cachés que se pueden regenerar y no entran en el backup: la de Trivy (`mercury-trivy-cache`) y las de dependencias de los agentes (`mercury-cache-nuget`, `-maven`, `-npm`, `-pip`).
 
 **`DATA_DIR`, `HDD_DIR`, `APPS_DIR`, `INBOX_DIR`.** Las cuatro raíces de datos fuera del repo. Ver [06-arquitectura.md](06-arquitectura.md#datos-fuera-del-repo).
